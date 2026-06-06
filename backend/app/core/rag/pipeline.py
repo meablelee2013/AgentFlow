@@ -20,7 +20,6 @@ This is the core module for interview demonstration of RAG architecture.
 import uuid
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 import structlog
 
 from app.models.knowledge import KnowledgeBase, Document, DocumentChunk
