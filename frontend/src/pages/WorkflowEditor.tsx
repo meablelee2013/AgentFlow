@@ -238,6 +238,19 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
         </button>
         <input value={wfName} onChange={e => setWfName(e.target.value)}
           className="w-full px-2 py-1.5 text-sm font-semibold bg-transparent border-b border-border focus:outline-none focus:border-ink/30" />
+        <p className="text-[10px] text-gray-400 font-mono uppercase tracking-wider mt-4">Drag to add</p>
+        {NODE_PALETTE.map(({ type, label, icon: Icon, color }) => (
+          <div key={type}
+            draggable
+            onDragStart={e => { e.dataTransfer.setData("application/reactflow", type); e.dataTransfer.effectAllowed = "move"; }}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border cursor-grab
+                       hover:shadow-sm hover:-translate-y-0.5 transition-all active:cursor-grabbing bg-white">
+            <div className="w-6 h-6 rounded flex items-center justify-center" style={{ background: `${color}18` }}>
+              <Icon size={12} style={{ color }} />
+            </div>
+            <span className="text-xs font-medium text-ink/70">{label}</span>
+          </div>
+        ))}
         <div className="flex-1" />
         <button onClick={handleSave} disabled={saving}
           className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-ink text-white hover:bg-slate-hover disabled:opacity-50 transition-colors">
