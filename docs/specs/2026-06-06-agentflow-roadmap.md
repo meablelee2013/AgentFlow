@@ -1,201 +1,211 @@
 # AgentFlow 实施路线图
 
 > 📅 起始日期：2026-06-06  
-> ⏰ 预计投入：每天 3-4 小时（兼职）/ 可调整为 8 小时（全职冲刺）  
-> 🎯 总工期：12 周（3 个 Phase，每 Phase 约 4 周）
+> 📊 当前进度：Phase 1 主体完成 + Phase 2 Tool System 完成  
+> ⏰ 实际投入：2 天（6/6 — 6/7），大幅超前于 12 周计划  
+> 🎯 下一步：Multi-Agent Supervisor Pattern（2.2）
 
 ---
 
-## Phase 1: MVP 核心引擎（Week 1-4）
+## Phase 1: MVP 核心引擎
 
 > **目标**：能对话 + 能查文档 + 能部署  
-> **可演示**：上传 PDF → 问问题 → 带来源引用的回答
+> **状态**：✅ 主体完成，可演示
 
-### Week 1 (6/6 — 6/12): 项目脚手架 + LLM 抽象层
+### Week 1 (6/6): 项目脚手架 + LLM 抽象层
 
-| 日期 | 模块 | 任务 | 交付物 | 状态 |
-|------|------|------|--------|------|
-| 6/6 | 1.1.1 | 后端脚手架 | FastAPI 入口 + config.py + 健康检查 | ✅ |
-| 6/7 | 1.1.1 | .env / .gitignore / README | 项目基础文件 | ✅ |
-| 6/8 | 1.1.2 | 前端脚手架 | Vite + React + Tailwind + 路由 + Sidebar | ✅ |
-| 6/9 | 1.1.3 | 数据库模型 | Conversation / Message / KnowledgeBase / Document ORM | ✅ |
-| 6/10 | 1.1.3 | Alembic + Docker | 数据库迁移 + docker-compose.yml | ✅ |
-| 6/11 | 1.2.1 | BaseLLMProvider | 抽象基类 + DeepSeekProvider 实现 | ✅ |
-| 6/12 | 1.2.2 | LLMFactory + LLMRouter | 工厂模式 + 路由 + 单元测试 | ✅ |
-| — | extra | 多租户模型 | User / Workspace / WorkspaceMember + RBAC | ✅ |
-| — | extra | 注释英文化 | 15 个 Python 文件全部切换为英文注释 | ✅ |
+| 模块 | 任务 | 状态 | PR |
+|------|------|------|-----|
+| 1.1.1 | 后端脚手架 (FastAPI + config + health) | ✅ | — |
+| 1.1.1 | .env / .gitignore / README | ✅ | — |
+| 1.1.2 | 前端脚手架 (Vite + React + Tailwind + Sidebar) | ✅ | — |
+| 1.1.3 | 数据库模型 (Conversation/Message/KnowledgeBase ORM) | ✅ | — |
+| 1.1.3 | Alembic + docker-compose.yml | ✅ | #6 |
+| 1.2.1 | BaseLLMProvider (DeepSeek + Qwen + Mermaid 类图) | ✅ | — |
+| 1.2.2 | LLMFactory + LLMRouter (Registry Pattern + 13 tests) | ✅ | — |
+| extra | 多租户模型 (User/Workspace/WorkspaceMember + RBAC) | ✅ | #2 |
+| extra | 全部注释英文化 (15 文件) | ✅ | #3 |
 
-**Week 1 检查点**：✅ `docker-compose up` 能启动 API + 前端 + PG + Redis，前端能看到 Dashboard
+### Week 2 (6/6 — 6/7): 对话引擎
 
-### Week 2 (6/13 — 6/19): 对话引擎
+| 模块 | 任务 | 状态 | PR |
+|------|------|------|-----|
+| 1.3.1 | ChatGraphEngine (StateGraph + Reducer 机制) | ✅ | #1 |
+| 1.3.2 | Checkpointer 集成 (MemorySaver + 继承链 Mermaid) | ✅ | #1 |
+| 1.3.3 | Chat API (POST /chat + SSE /stream + /history) | ✅ | #1 |
+| 1.3.4 | Chat 持久化到 PostgreSQL (ChatService) | ✅ | #5 |
+| 1.3.5 | Chat API Key 修复 | ✅ | #4 |
+| 1.3.6 | 对话列表 API + 新建对话 | ✅ | #8 |
+| 1.3.7 | 对话单元测试 (13 tests) | ✅ | — |
+| 1.3.8 | System Prompt Markdown 指令 | ✅ | #8 |
 
-| 日期 | 模块 | 任务 | 交付物 | 状态 |
-|------|------|------|--------|------|
-| 6/13 | 1.3.1 | ChatState + ChatGraphEngine | StateGraph 对话图 + Reducer 机制 | ✅ |
-| 6/14 | 1.3.2 | Checkpointer 集成 | MemorySaver / SqliteSaver + 继承链注释 | ✅ |
-| 6/15 | 1.3.3 | Chat API | POST /api/v1/chat — 对话端点 + 流式 SSE | ✅ |
-| 6/16 | 1.3.4 | 会话管理 API | 会话列表 / 新建 / 删除 / 历史恢复 | ⬜ |
-| 6/17 | 1.3.5 | 多轮对话上下文 | 滑动窗口 + Token 管理 | ⬜ |
-| 6/18 | 1.3.6 | System Prompt 模板 | Jinja2 模板 + 变量注入 | ⬜ |
-| 6/19 | 1.3.7 | 对话单元测试 | ChatGraphEngine 测试 + API 集成测试 | ✅ |
+### Week 3 (6/7): RAG 管道
 
-**Week 2 检查点**：✅ curl 能发对话请求，同 thread_id 可恢复上下文
+| 模块 | 任务 | 状态 | PR |
+|------|------|------|-----|
+| 1.4.1 | 文档上传 API (POST /knowledge/upload) | ✅ | #7 |
+| 1.4.2 | URL 摄入 API (POST /knowledge/ingest-url) | ✅ | #7 |
+| 1.4.3 | 10 Parser 策略模式 (Pdf/Docx/Csv/Excel/Pptx/Json/Epub/Html/Md/Txt) | ✅ | #7 |
+| 1.4.4 | DocumentChunker (fixed-size + recursive + overlap) | ✅ | #7 |
+| 1.4.5 | Embedder (纯 Python TF-IDF 384-dim) | ✅ | #7 |
+| 1.4.6 | HybridRetriever (vector cosine + BM25 + RRF fusion) | ✅ | #7 |
+| 1.4.7 | RAG Query API (POST /knowledge/query) | ✅ | #7 |
+| 1.4.8 | KB CRUD (create/list/delete + documents) | ✅ | #7 |
+| 1.4.9 | URL User-Agent 修复 | ✅ | #9 |
+| 1.4.10 | created_at timestamp on document_chunks | ✅ | #9 |
 
-### Week 3 (6/20 — 6/26): RAG 管道
+### Week 4 (6/7): 前端 + 部署
 
-| 日期 | 模块 | 任务 | 交付物 | 状态 |
-|------|------|------|--------|------|
-| 6/20 | 1.4.1 | 文档上传 API | POST /api/v1/knowledge/upload | ⬜ |
-| 6/21 | 1.4.2 | Celery 异步任务 | 文档处理 → 分块 → Embedding 任务队列 | ⬜ |
-| 6/22 | 1.4.3 | 分块策略 | 固定大小 + 语义分块 + 递归分块 | ⬜ |
-| 6/23 | 1.4.4 | Embedding 管理 | pgvector 写入 + 索引 | ⬜ |
-| 6/24 | 1.4.5 | 混合检索 + Rerank | 向量 + BM25 融合检索 | ⬜ |
-| 6/25 | 1.4.6 | RAG API + 引用溯源 | POST /api/v1/knowledge/query | ⬜ |
-| 6/26 | 1.4.7 | RAG 时序图注释 | Pipeline 全流程 Mermaid 图写入注释 | ⬜ |
-
-**Week 3 检查点**：上传 PDF → 分块完成 → 检索返回带来源的分块
-
-### Week 4 (6/27 — 7/3): 前端 + 部署
-
-| 日期 | 模块 | 任务 | 交付物 | 状态 |
-|------|------|------|--------|------|
-| 6/27 | 1.5.1 | 聊天 UI | ChatWindow + MessageBubble + 流式显示 | ⬜ |
-| 6/28 | 1.5.2 | 知识库管理页 | 文件上传 + 文档列表 + 状态展示 | ⬜ |
-| 6/29 | 1.5.3 | 引用卡片 | 回答下方的来源引用展示 | ⬜ |
-| 6/30 | 1.6.1 | Dockerfile | 多阶段构建（API / Worker / Frontend） | ⬜ |
-| 7/1 | 1.6.2 | Nginx 配置 | 反向代理 + HTTPS | ⬜ |
-| 7/2 | 1.6.3 | 阿里云 RDS + Redis 配置 | 连接配置 + 安全组 | ⬜ |
-| 7/3 | 1.6.4 | Phase 1 验收测试 | 端到端流程：上传文档 → 问答 → 引用 | ⬜ |
-
-**Week 4 检查点**：🎉 Phase 1 完成 — 可对外演示 MVP
+| 模块 | 任务 | 状态 | PR |
+|------|------|------|-----|
+| 1.5.1 | ChatWindow (流式 + Markdown 渲染 + 打字效果) | ✅ | #8 |
+| 1.5.2 | MessageBubble (复制/编辑 + hover 操作) | ✅ | #8 |
+| 1.5.3 | 可折叠/拖拽 Sidebar | ✅ | #8 |
+| 1.5.4 | 对话列表 (新建/切换/历史) | ✅ | #8 |
+| 1.5.5 | KnowledgeBase 管理 (多 KB + 拖拽上传 + 中转站) | ✅ | #8, #9 |
+| 1.5.6 | Dashboard (项目面板 + 统计) | ✅ | #8 |
+| 1.6.1 | Dockerfile (API multi-stage + Frontend) | ✅ | #6 |
+| 1.6.2 | docker-compose.yml (db + redis + api + frontend) | ✅ | #6 |
+| 1.6.3 | Nginx 配置 | ⬜ | — |
+| 1.6.4 | 阿里云 RDS + Redis 配置 | ⬜ | — |
+| 1.6.5 | Phase 1 端到端验收测试 | ⬜ | — |
 
 ---
 
-## Phase 2: Agent + Workflow 增强（Week 5-9）
+## Phase 2: Agent + Workflow 能力构建
 
-> **目标**：支持自主推理、工具调用、可视化编排  
-> **可演示**：画布搭客服工作流 → 意图识别 → 查知识库 → 人工审批 → 回复
+> **目标**：工具调用、Supervisor 多 Agent、可视化编排、HITL  
+> **状态**：🔜 2.2 Multi-Agent 下一步
 
-### Week 5 (7/4 — 7/10): 工具系统
+### ✅ Phase 2.1: 工具系统（已完成）
 
-| 日期 | 模块 | 任务 | 状态 |
-|------|------|------|------|
-| 7/4 | 2.1.1 | BaseTool 抽象类 + ToolRegistry | ⬜ |
-| 7/5 | 2.1.2 | 内置工具 WebSearch | ⬜ |
-| 7/6 | 2.1.3 | 内置工具 Calculator + HTTPRequest | ⬜ |
-| 7/7 | 2.1.4 | Tool Loop 引擎（ReAct） | ⬜ |
-| 7/8 | 2.1.5 | 工具调用 API | ⬜ |
-| 7/9 | 2.1.6 | 参数提取节点 | ⬜ |
-| 7/10 | 2.1.7 | Tool Loop 时序图注释 | ⬜ |
+| 模块 | 任务 | 状态 | PR |
+|------|------|------|-----|
+| 2.1.1 | BaseTool 抽象类 (Command Pattern + JSON Schema) | ✅ | #9 |
+| 2.1.2 | ToolRegistry (Registry Pattern + OpenAI schema) | ✅ | #9 |
+| 2.1.3 | CalculatorTool (safe math eval) | ✅ | #9 |
+| 2.1.4 | DateTimeTool (now/today/timestamp) | ✅ | #9 |
+| 2.1.5 | WebSearchTool (placeholder, API in Phase 3) | ✅ | #9 |
+| 2.1.6 | HTTPRequestTool (GET/POST/PUT/DELETE) | ✅ | #9 |
+| 2.1.7 | AgentGraphEngine (ReAct Tool Loop + Mermaid) | ✅ | #9 |
+| 2.1.8 | Agent API (POST /agent + SSE /stream + GET /tools) | ✅ | #9 |
+| 2.1.9 | Tool Loop 验证 (calculator: 2+2 → "4") | ✅ | #9 |
 
-### Week 6 (7/11 — 7/17): Agent 引擎
+### ⬜ Phase 2.2: Supervisor 多 Agent（下一步）
 
-| 日期 | 模块 | 任务 | 状态 |
-|------|------|------|------|
-| 7/11 | 2.1.8 | AgentGraphEngine | ⬜ |
-| 7/12 | 2.1.9 | Multi-Agent 协作（Supervisor） | ⬜ |
-| 7/13 | 2.1.10 | Agent API + 测试 | ⬜ |
-
-### Week 7 (7/18 — 7/24): Workflow 可视化编排
-
-| 日期 | 模块 | 任务 | 状态 |
-|------|------|------|------|
-| 7/18 | 2.2.1 | Workflow DSL Schema | ⬜ |
-| 7/19 | 2.2.2 | DSL → LangGraph 编译器 | ⬜ |
-| 7/20 | 2.2.3 | ReactFlow 画布（前端） | ⬜ |
-| 7/21 | 2.2.4 | 对话/知识库检索 节点 | ⬜ |
-| 7/22 | 2.2.5 | 条件分支 + 循环节点 | ⬜ |
-| 7/23 | 2.2.6 | 可视化画布对接 API | ⬜ |
-| 7/24 | 2.2.7 | DSL 编译 Mermaid 注释 | ⬜ |
-
-### Week 8 (7/25 — 7/31): Workflow 运行时
-
-| 日期 | 模块 | 任务 | 状态 |
-|------|------|------|------|
-| 7/25 | 2.3.1 | HITL 审批节点 | ⬜ |
-| 7/26 | 2.3.2 | 断点续传 | ⬜ |
-| 7/27 | 2.3.3 | 暂停/恢复 | ⬜ |
-| 7/28 | 2.3.4 | 流式执行 + WebSocket | ⬜ |
-| 7/29 | 2.3.5 | Workflow 发布 API | ⬜ |
-| 7/30 | 2.3.6 | HITL 时序图注释 | ⬜ |
-
-### Week 9 (8/1 — 8/3): Phase 2 验收
-
-| 日期 | 任务 | 状态 |
+| 模块 | 任务 | 状态 |
 |------|------|------|
-| 8/1 | 端到端 Workflow 测试 | ⬜ |
-| 8/2 | 画布交互优化 | ⬜ |
-| 8/3 | Phase 2 验收演示 | ⬜ |
+| 2.2.1 | SupervisorGraphEngine (LangGraph 状态路由) | ⬜ |
+| 2.2.2 | Researcher Agent (web search + summarization) | ⬜ |
+| 2.2.3 | Coder Agent (code generation + review) | ⬜ |
+| 2.2.4 | Reviewer Agent (quality check + feedback loop) | ⬜ |
+| 2.2.5 | Multi-Agent API + 流式 | ⬜ |
+| 2.2.6 | Supervisor 时序图 (Mermaid) | ⬜ |
+
+### ⬜ Phase 2.3: Workflow 可视化编排
+
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| 2.3.1 | Workflow DSL Schema (JSON 描述) | ⬜ |
+| 2.3.2 | DSL → LangGraph 编译器 | ⬜ |
+| 2.3.3 | ReactFlow 画布 (拖拽节点 + 连线) | ⬜ |
+| 2.3.4 | 节点类型 (Chat/RAG/Tool/Condition/Loop/HITL) | ⬜ |
+| 2.3.5 | 条件分支 + 循环节点 | ⬜ |
+| 2.3.6 | 画布对接 API | ⬜ |
+
+### ⬜ Phase 2.4: Workflow 运行时 (HITL)
+
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| 2.4.1 | HITL 审批节点 (interrupt_before) | ⬜ |
+| 2.4.2 | 断点续传 (update_state + invoke(None)) | ⬜ |
+| 2.4.3 | 暂停/恢复 Command | ⬜ |
+| 2.4.4 | 流式执行 + WebSocket 推送 | ⬜ |
+| 2.4.5 | Workflow 发布 API | ⬜ |
 
 ---
 
-## Phase 3: 企业化 + 可观测（Week 10-12）
+## Phase 3: 企业化 + 可观测
 
 > **目标**：多用户、可观测、生产就绪  
-> **可演示**：多用户各自创建 App → 管理员看用量 → 全链路监控
+> **状态**：⬜ 未开始
 
-### Week 10 (8/4 — 8/10): 多租户 & 认证
+### 3.1 多租户 & 认证
 
-| 日期 | 模块 | 任务 | 状态 |
-|------|------|------|------|
-| 8/4 | 3.1.1 | User model + 注册/登录 API | ⬜ |
-| 8/5 | 3.1.2 | JWT + Middleware | ⬜ |
-| 8/6 | 3.1.3 | RBAC 角色（Admin/Developer/Viewer） | ⬜ |
-| 8/7 | 3.1.4 | 工作空间隔离 | ⬜ |
-| 8/8 | 3.1.5 | API Key 管理 | ⬜ |
-| 8/9 | 3.2.1 | Admin 后台 — 用户管理 | ⬜ |
-| 8/10 | 3.2.2 | Admin 后台 — 用量统计仪表盘 | ⬜ |
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| 3.1.1 | User model + 注册/登录 API | ⬜ |
+| 3.1.2 | JWT + Middleware | ⬜ |
+| 3.1.3 | RBAC 角色 (Admin/Developer/Viewer) | ⬜ |
+| 3.1.4 | 工作空间隔离 | ⬜ |
+| 3.1.5 | API Key 管理 | ⬜ |
+| 3.1.6 | Admin 后台 (用户管理 + 用量仪表盘) | ⬜ |
 
-### Week 11 (8/11 — 8/17): 可观测
+### 3.2 可观测
 
-| 日期 | 模块 | 任务 | 状态 |
-|------|------|------|------|
-| 8/11 | 3.3.1 | 对话日志 | ⬜ |
-| 8/12 | 3.3.2 | Token 监控 | ⬜ |
-| 8/13 | 3.3.3 | Prometheus Metrics | ⬜ |
-| 8/14 | 3.3.4 | Grafana Dashboard | ⬜ |
-| 8/15 | 3.3.5 | 告警规则 | ⬜ |
-| 8/16 | 3.4.1 | App 发布/版本管理 | ⬜ |
-| 8/17 | 3.4.2 | API 文档自动生成 | ⬜ |
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| 3.2.1 | 对话日志 + Token 监控 | ⬜ |
+| 3.2.2 | Prometheus Metrics | ⬜ |
+| 3.2.3 | Grafana Dashboard | ⬜ |
 
-### Week 12 (8/18 — 8/24): 部署上线
+### 3.3 部署上线
 
-| 日期 | 模块 | 任务 | 状态 |
-|------|------|------|------|
-| 8/18 | 3.5.1 | 阿里云 ACK 部署配置 | ⬜ |
-| 8/19 | 3.5.2 | HTTPS + 域名 + SSL | ⬜ |
-| 8/20 | 3.5.3 | 压力测试 | ⬜ |
-| 8/21 | 3.5.4 | 性能优化 | ⬜ |
-| 8/22 | 3.5.5 | 面试材料整理（架构图 + 面试话术） | ⬜ |
-| 8/23 | 3.5.6 | README + 快速开始指南完善 | ⬜ |
-| 8/24 | 🎉 | **最终验收 + 发布 v1.0** | ⬜ |
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| 3.3.1 | 阿里云 ACK 部署配置 | ⬜ |
+| 3.3.2 | HTTPS + 域名 + SSL | ⬜ |
+| 3.3.3 | 压力测试 + 性能优化 | ⬜ |
+| 3.3.4 | 面试材料整理 (架构图 + 话术) | ⬜ |
+| 3.3.5 | README + 快速开始指南 | ⬜ |
 
 ---
 
 ## 里程碑总览
 
 ```
-Week 1  ████ 项目跑起来（后端 + 前端 + DB 连通）
-Week 2  ████ 能对话（LangGraph 对话引擎 + 流式输出）
-Week 3  ████ 能检索（RAG 管道 + pgvector）
-Week 4  ████ 🎯 MVP 可演示（Phase 1 完成）
-Week 5  ████ 能调工具（Function Calling + ReAct）
-Week 6  ████ Agent 引擎（多 Agent 协作）
-Week 7  ████ 可视化画布（ReactFlow + DSL 编译器）
-Week 8  ████ 人机协作（HITL + 断点续传）
-Week 9  ████ 🎯 Agent 平台可演示（Phase 2 完成）
-Week 10 ████ 多用户（JWT + RBAC + 工作空间）
-Week 11 ████ 可观测（Prometheus + Grafana）
-Week 12 ████ 🎯 生产部署 v1.0（阿里云 ACK）
+✅ Week 1  ████ 项目跑起来 (后端 + 前端 + DB 连通)
+✅ Week 2  ████ 能对话 (LangGraph + 流式 + Markdown)
+✅ Week 3  ████ 能检索 (RAG 管道 + 17 格式 + 混合检索)
+✅ Week 4  ████ 🎯 MVP 可演示 (Phase 1 完成)
+✅ Week 5  ████ 能调工具 (Function Calling + ReAct + 4 tools)
+⬜ Week 6  ████ Supervisor 多 Agent ← 下一步
+⬜ Week 7  ████ 可视化画布 (ReactFlow + DSL 编译器)
+⬜ Week 8  ████ HITL 人机协作
+⬜ Week 9  ████ 🎯 Phase 2 完成
+⬜ Week 10 ████ 多用户 (JWT + RBAC)
+⬜ Week 11 ████ 可观测 (Prometheus + Grafana)
+⬜ Week 12 ████ 🎯 阿里云 v1.0
+```
+
+## 已部署 API（20 个端点）
+
+```
+POST   /api/v1/chat                  ✅ 对话
+POST   /api/v1/chat/stream           ✅ SSE 流式
+GET    /api/v1/chat/conversations    ✅ 对话列表
+GET    /api/v1/chat/history/{tid}    ✅ 历史消息
+POST   /api/v1/knowledge/upload      ✅ 文档上传 (17 formats)
+POST   /api/v1/knowledge/ingest-url  ✅ URL 摄入
+POST   /api/v1/knowledge/query       ✅ 混合检索
+GET    /api/v1/knowledge/bases       ✅ KB 列表
+POST   /api/v1/knowledge/bases       ✅ 创建 KB
+DELETE /api/v1/knowledge/bases/{id}  ✅ 删除 KB
+GET    /api/v1/knowledge/bases/{id}/documents  ✅ 文档列表
+DELETE /api/v1/knowledge/bases/{id}/documents/{did} ✅ 删除文档
+POST   /api/v1/agent                 ✅ Agent 对话
+POST   /api/v1/agent/stream          ✅ Agent SSE
+GET    /api/v1/agent/tools           ✅ 工具列表
+GET    /health                       ✅ 健康检查
 ```
 
 ## 面试时间线建议
 
 | 阶段 | 建议 |
 |------|------|
-| **Phase 1 完成后** | 可以开始投简历，展示 MVP + 技术深度（Checkpointer 继承链等） |
-| **Phase 2 完成后** | 核心竞争力已具备（可视化工作流 + Agent 编排），面试加分最多 |
-| **Phase 3 完成后** | 完整作品集，可以体现全链路工程能力 |
+| **现在** | 已有 MVP + RAG + Agent Tools，可以开始投简历 |
+| **Phase 2 完成后** | 核心竞争力具备 (Supervisor + Workflow + HITL) |
+| **Phase 3 完成后** | 完整全栈作品集 (多租户 + 可观测 + 阿里云) |
 
 ---
 
