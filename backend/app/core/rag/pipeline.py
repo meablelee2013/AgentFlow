@@ -54,6 +54,8 @@ class RAGPipeline:
         self,
         file_path: str,
         knowledge_base_id: uuid.UUID | None = None,
+        *,
+        original_filename: str | None = None,
     ) -> KnowledgeBase:
         """Ingest a file into the RAG pipeline.
 
@@ -62,12 +64,13 @@ class RAGPipeline:
         Args:
             file_path: Path to the file (PDF, DOCX, MD, TXT)
             knowledge_base_id: Optional existing KB to add to
+            original_filename: Original filename (used when temp path has UUID prefix)
 
         Returns:
             The KnowledgeBase (existing or newly created)
         """
         path = Path(file_path)
-        filename = path.name
+        filename = original_filename or path.name
         file_type = path.suffix.lower().lstrip(".")
 
         # 1. Parse text via auto-dispatched parser

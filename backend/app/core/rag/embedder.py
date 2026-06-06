@@ -1,41 +1,66 @@
-"""Embedding manager — generates and stores vector embeddings via pgvector."""
-import os
+"""
+Embedding manager — pure Python TF-IDF (zero external dependencies).
+
+Phase 1: Pure Python TF-IDF for MVP (fast, offline).
+Phase 2: Upgrade to sentence-transformers or API embeddings.
+"""
+
+import asyncio
+import math
+from collections import Counter
+
 from app.config import settings
-from openai import AsyncOpenAI
 
 
 class Embedder:
-    """Generates embeddings using DeepSeek / OpenAI-compatible API.
-
-    Usage:
-        embedder = Embedder()
-        vectors = await embedder.embed(["text chunk 1", "text chunk 2"])
-        # Store vectors in pgvector via DocumentChunk model
-    """
+    """Text embedding using pure Python TF-IDF (384-dim output)."""
 
     def __init__(self):
-        self.client = AsyncOpenAI(
-            api_key=settings.DEEPSEEK_API_KEY or os.getenv("DEEPSEEK_API_KEY"),
-            base_url=settings.DEEPSEEK_BASE_URL,
-        )
         self.dimension = settings.VECTOR_DIMENSION
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a list of texts.
+        """Generate TF-IDF embeddings for a list of texts.
 
-        Uses DeepSeek embedding API (OpenAI-compatible).
-        For production, consider batching to reduce API calls.
+        Uses a simple bag-of-words TF-IDF with the top-N terms
+        across the batch as the feature space.
         """
-        embeddings = []
+        if not texts:
+            return []
+
+        # Build vocabulary from top terms across all texts
+        word_counts = Counter()
+        doc_freqs = Counter()
         for text in texts:
-            response = await self.client.embeddings.create(
-                model=settings.EMBEDDING_MODEL,
-                input=text[:8000],  # Truncate to model limit
-            )
-            embeddings.append(response.data[0].embedding)
-        return embeddings
+            words = self._tokenize(text)
+            word_counts.update(words)
+            doc_freqs.update(set(words))
+
+        # Select top terms as features
+        vocab = [w for w, _ in word_counts.most_common(self.dimension)]
+        if not vocab:
+            return [[0.0] * self.dimension for _ in texts]
+
+        # Build TF-IDF vectors
+        N = len(texts)
+        idx = {w: i for i, w in enumerate(vocab)}
+        vectors = []
+        for text in texts:
+            words = self._tokenize(text)
+            tf = Counter(words)
+            vec = [0.0] * self.dimension
+            for word, count in tf.items():
+                if word in idx:
+                    df = doc_freqs.get(word, 1)
+                    vec[idx[word]] = (count / max(len(words), 1)) * math.log(N / (df + 1) + 1)
+            vectors.append(vec)
+        return vectors
 
     async def embed_single(self, text: str) -> list[float]:
-        """Generate embedding for a single text."""
         results = await self.embed([text])
         return results[0]
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        """Simple English tokenization."""
+        import re
+        return re.findall(r"[a-zA-Z0-9]{2,}", text.lower())
