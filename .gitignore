@@ -31,3 +31,6 @@ frontend/node_modules/
 # Docker
 docker-data/
 
+# Local config (passwords)
+docs/config.md
+

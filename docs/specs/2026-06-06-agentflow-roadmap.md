@@ -15,29 +15,31 @@
 
 | 日期 | 模块 | 任务 | 交付物 | 状态 |
 |------|------|------|--------|------|
-| 6/6 | 1.1.1 | 后端脚手架 | FastAPI 入口 + config.py + 健康检查 | 🔄 进行中 |
-| 6/7 | 1.1.1 | .env / .gitignore / README | 项目基础文件 | ⬜ |
-| 6/8 | 1.1.2 | 前端脚手架 | Vite + React + Tailwind + 路由 + Sidebar | ⬜ |
-| 6/9 | 1.1.3 | 数据库模型 | Conversation / Message / KnowledgeBase / Document ORM | ⬜ |
-| 6/10 | 1.1.3 | Alembic + Docker | 数据库迁移 + docker-compose.yml | ⬜ |
-| 6/11 | 1.2.1 | BaseLLMProvider | 抽象基类 + DeepSeekProvider 实现 | ⬜ |
-| 6/12 | 1.2.2 | LLMFactory + LLMRouter | 工厂模式 + 路由 + 单元测试 | ⬜ |
+| 6/6 | 1.1.1 | 后端脚手架 | FastAPI 入口 + config.py + 健康检查 | ✅ |
+| 6/7 | 1.1.1 | .env / .gitignore / README | 项目基础文件 | ✅ |
+| 6/8 | 1.1.2 | 前端脚手架 | Vite + React + Tailwind + 路由 + Sidebar | ✅ |
+| 6/9 | 1.1.3 | 数据库模型 | Conversation / Message / KnowledgeBase / Document ORM | ✅ |
+| 6/10 | 1.1.3 | Alembic + Docker | 数据库迁移 + docker-compose.yml | ✅ |
+| 6/11 | 1.2.1 | BaseLLMProvider | 抽象基类 + DeepSeek/Qwen 实现 | ✅ |
+| 6/12 | 1.2.2 | LLMFactory + LLMRouter | 工厂模式 + 路由 + 13 tests | ✅ |
+| — | extra | 多租户模型 | User / Workspace / WorkspaceMember + RBAC | ✅ |
+| — | extra | 英文注释 | 15 文件零中文 | ✅ |
 
-**Week 1 检查点**：`docker-compose up` 能启动 API + 前端 + PG + Redis，前端能看到 Dashboard
+**Week 1 检查点**：✅ 全部完成
 
 ### Week 2 (6/13 — 6/19): 对话引擎
 
 | 日期 | 模块 | 任务 | 交付物 | 状态 |
 |------|------|------|--------|------|
-| 6/13 | 1.3.1 | ChatState + ChatGraphEngine | StateGraph 对话图 + Reducer 机制 | ⬜ |
-| 6/14 | 1.3.2 | Checkpointer 集成 | MemorySaver / SqliteSaver + 继承链注释 | ⬜ |
-| 6/15 | 1.3.3 | Chat API | POST /api/v1/chat — 对话端点 + 流式 SSE | ⬜ |
+| 6/13 | 1.3.1 | ChatState + ChatGraphEngine | StateGraph 对话图 + Reducer 机制 | ✅ |
+| 6/14 | 1.3.2 | Checkpointer 集成 | MemorySaver + 继承链注释 | ✅ |
+| 6/15 | 1.3.3 | Chat API | POST /api/v1/chat + SSE stream + history | ✅ 已 curl 验证 |
 | 6/16 | 1.3.4 | 会话管理 API | 会话列表 / 新建 / 删除 / 历史恢复 | ⬜ |
 | 6/17 | 1.3.5 | 多轮对话上下文 | 滑动窗口 + Token 管理 | ⬜ |
 | 6/18 | 1.3.6 | System Prompt 模板 | Jinja2 模板 + 变量注入 | ⬜ |
-| 6/19 | 1.3.7 | 对话单元测试 | ChatGraphEngine 测试 + API 集成测试 | ⬜ |
+| 6/19 | 1.3.7 | 对话单元测试 | ChatGraphEngine 测试 + API 集成测试 | ✅ 13 tests |
 
-**Week 2 检查点**：curl 能发对话请求，同 thread_id 可恢复上下文
+**Week 2 检查点**：✅ curl 发对话请求，同 thread_id 可恢复上下文，历史可查询
 
 ### Week 3 (6/20 — 6/26): RAG 管道
 
