@@ -71,7 +71,9 @@ async def upload_document(
     kb_id = uuid.UUID(knowledge_base_id) if knowledge_base_id else None
 
     try:
-        kb = await pipeline.ingest_file(str(file_path), knowledge_base_id=kb_id)
+        kb = await pipeline.ingest_file(
+            str(file_path), knowledge_base_id=kb_id, original_filename=file.filename
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     finally:
