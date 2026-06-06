@@ -46,7 +46,7 @@ class HITLNodeData(BaseModel):
 
 class WorkflowNode(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    type: Literal["start", "chat", "rag", "tool", "condition", "loop", "hitl", "end"]
+    type: Literal["start", "chat", "rag", "search", "tool", "condition", "loop", "hitl", "end"]
     position: NodePosition = Field(default_factory=NodePosition)
     data: dict = Field(default_factory=dict)
 

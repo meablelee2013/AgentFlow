@@ -115,11 +115,25 @@ class WorkflowCompiler:
             msg = node.data.get("approval_message", "Approve?")
             return {"messages": [AIMessage(content=f"[HITL: {msg} — awaiting approval]")]}
 
+        async def search_func(state: ChatState) -> dict:
+            """Execute web search and return results."""
+            from app.core.tool.builtins.search_backends import get_search_backend
+            last_msg = state["messages"][-1].content if state["messages"] else ""
+            backend = get_search_backend()
+            results = await backend.search(last_msg, max_results=5)
+            if not results:
+                return {"messages": [AIMessage(content=f"No results found for '{last_msg[:100]}...'")]}
+            lines = [f"Web search results for '{last_msg[:100]}...' (via {backend.name}):\n"]
+            for i, r in enumerate(results):
+                lines.append(f"{i + 1}. {r.to_llm_text()}")
+            return {"messages": [AIMessage(content="\n\n".join(lines))]}
+
         async def pass_func(state: ChatState) -> dict:
             return {}
 
         handlers = {
             "chat": chat_func,
+            "search": search_func,
             "rag": rag_func,
             "tool": tool_func,
             "hitl": hitl_func,

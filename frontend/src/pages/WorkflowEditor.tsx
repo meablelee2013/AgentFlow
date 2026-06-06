@@ -8,11 +8,12 @@ import {
 import type { Connection, Node, Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Save, Play, MessageSquare, Database, Wrench,
-         GitBranch, Repeat, UserCheck, Plus, ArrowLeft, Workflow } from "lucide-react";
+         GitBranch, Repeat, UserCheck, Plus, ArrowLeft, Workflow, Globe } from "lucide-react";
 
 const NODE_PALETTE = [
   { type: "chat", label: "Chat", icon: MessageSquare, color: "#3b82f6" },
   { type: "rag", label: "RAG", icon: Database, color: "#8b5cf6" },
+  { type: "search", label: "Web Search", icon: Globe, color: "#14b8a6" },
   { type: "tool", label: "Tool", icon: Wrench, color: "#f59e0b" },
   { type: "condition", label: "Condition", icon: GitBranch, color: "#ef4444" },
   { type: "loop", label: "Loop", icon: Repeat, color: "#06b6d4" },
@@ -31,12 +32,14 @@ const END_NODE: Node = {
 function CustomNode({ id, data, type }: { id: string; data: Record<string, unknown>; type: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const labels: Record<string, string> = {
-    chat: "Chat", rag: "RAG", tool: "Tool", condition: "Condition", loop: "Loop", hitl: "HITL",
+    chat: "Chat", rag: "RAG", search: "Web Search", tool: "Tool",
+    condition: "Condition", loop: "Loop", hitl: "HITL",
   };
   const colors: Record<string, string> = {
     chat: "border-blue-400 bg-blue-50", rag: "border-violet-400 bg-violet-50",
-    tool: "border-amber-400 bg-amber-50", condition: "border-red-400 bg-red-50",
-    loop: "border-cyan-400 bg-cyan-50", hitl: "border-emerald-400 bg-emerald-50",
+    search: "border-teal-400 bg-teal-50", tool: "border-amber-400 bg-amber-50",
+    condition: "border-red-400 bg-red-50", loop: "border-cyan-400 bg-cyan-50",
+    hitl: "border-emerald-400 bg-emerald-50",
   };
   const onAdd = data?.onAddNode as ((sourceId: string, nodeType: string) => void) | undefined;
 
@@ -223,6 +226,7 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
     endNode: EndNode,
     chat: (p: any) => <CustomNode {...p} type="chat" />,
     rag: (p: any) => <CustomNode {...p} type="rag" />,
+    search: (p: any) => <CustomNode {...p} type="search" />,
     tool: (p: any) => <CustomNode {...p} type="tool" />,
     condition: (p: any) => <CustomNode {...p} type="condition" />,
     loop: (p: any) => <CustomNode {...p} type="loop" />,
