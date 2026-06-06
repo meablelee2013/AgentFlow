@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useChatStore } from "../../stores/chat";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
@@ -67,8 +69,21 @@ export function ChatWindow() {
                 <span className="text-[10px] font-mono text-ink/50 font-semibold">AI</span>
               </div>
               <div className="max-w-[72%]">
-                <div className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm max-w-none">
-                  <span className="whitespace-pre-wrap">{streaming}</span>
+                <div className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm max-w-none
+                  [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-2
+                  [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1.5
+                  [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
+                  [&_p]:my-1.5 [&_p]:leading-relaxed
+                  [&_ul]:pl-5 [&_ul]:my-1.5 [&_ol]:pl-5 [&_ol]:my-1.5
+                  [&_li]:my-0.5
+                  [&_code]:bg-[#f0ede8] [&_code]:text-[#d6336c] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.88em] [&_code]:font-mono
+                  [&_pre]:bg-[#1a1a1a] [&_pre]:text-[#e8e5e0] [&_pre]:p-3.5 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_pre]:my-2 [&_pre]:text-[0.85em]
+                  [&_pre_code]:bg-transparent [&_pre_code]:text-inherit [&_pre_code]:p-0
+                  [&_blockquote]:border-l-[3px] [&_blockquote]:border-[#d4d0c8] [&_blockquote]:pl-3.5 [&_blockquote]:my-2 [&_blockquote]:text-gray-500
+                  [&_a]:text-blue-600 [&_a]:underline [&_strong]:font-semibold">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {streaming}
+                  </ReactMarkdown>
                   <span className="inline-block w-[2px] h-[1em] bg-accent ml-0.5 align-text-bottom animate-pulse" />
                 </div>
               </div>
