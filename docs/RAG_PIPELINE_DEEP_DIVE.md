@@ -114,9 +114,127 @@ Step 3: 计算 TF-IDF
 
 ---
 
-## 四、向量是如何存储的？
+## 四、分块（Chunking）深度解析
 
-### 4.1 数据库表结构
+### 4.1 为什么要分块？
+
+**根本原因：Embedding 模型有输入长度限制。**
+
+拿 all-MiniLM-L6-v2 举例——最大输入 256 个 token。一本 10 万字的小说直接塞进去？模型直接报错。必须切成小块。
+
+**但即使模型支持无限长度（比如 text-embedding-3 支持 8192 token），也必须分块。原因：**
+
+```
+不分块（整本书一个向量）:
+  "The moon colony..." + "量子力学原理..." + "食谱：红烧肉做法..."
+  → 一个 384 维向量试图概括所有内容
+  → 检索 "月球基地什么时候建立的？" 
+  → 向量匹配：0.55（不高不低，因为向量里混了太多无关信息）
+  → 拿整本书喂给 LLM → Token 超限
+
+分块后（每段一个向量）:
+  块 1: "Commander Elena stared at Luna-7..."       → 向量 A（科幻/月球相关）
+  块 2: "The clockmaker fixed the silver watch..."   → 向量 B（温情/手工相关）
+  块 3: "Dr. Tanaka's underwater farm..."            → 向量 C（科技/环保相关）
+  
+  检索 "月球基地" → 和向量 A 距离 0.02（极近！）→ 只返回块 1 → 精准
+```
+
+**分块 = 把一本书的"模糊印象"变成每一段的"精准定位"。**
+
+### 4.2 分块策略对比
+
+我们的实现支持两种策略：
+
+**策略 A：固定大小分块（fixed_size）**
+```python
+chunk_size = 500   # 每 500 字符一刀
+overlap = 100      # 相邻块重叠 100 字符
+
+原文: "ABCDEFGHIJKLMNOPQRSTUVWXYZ" (26 chars)
+块 1: "ABCDEFGHIJ"       (chars 0-10)
+块 2:      "HIJKLMNOPQR" (chars 7-17, overlap 3)
+块 3:            "OPQRSTUVWXYZ" (chars 14-26)
+
+优点: 简单、快
+缺点: 可能在句子中间切断 → "Alice works in" 和 "Engineering" 被分到两个块
+```
+
+**策略 B：递归分块（recursive）—— 我们的默认策略**
+```python
+# 分离器优先级: 段落 > 行 > 句子 > 字符
+separators = ["\n\n", "\n", ". ", "! ", "? ", ".", "!", "?", " "]
+
+原文:
+"Alice works in Engineering.\n\nBob works in Marketing."
+
+Step 1: 尝试用 "\n\n" 切分
+  → ["Alice works in Engineering.", "Bob works in Marketing."]
+  → 每段都 < chunk_size(1000) → 完美！不继续切
+
+原文:
+"Alice works in Engineering. Bob works in Marketing. Charlie works in Design." (太长了)
+
+Step 2: "\n\n" 切不了（没有空行）→ 尝试 "\n" → 也没有 → 尝试 ". "
+  → ["Alice works in Engineering", "Bob works in Marketing", "Charlie works in Design"]
+  → 每段 < chunk_size → 完成
+
+优点: 在自然边界切分，保持语义完整
+缺点: 如果一段特别长（没有标点的纯文本），最终会退化到字符级切分
+```
+
+### 4.3 块大小如何确定？
+
+**核心公式：chunk_size = f(模型限制, 检索精度, 上下文完整度)**
+
+| 因素 | 影响 |
+|------|------|
+| **Embedding 模型 limit** | 硬上限。MiniLM=256 token, text-embedding-3=8192 token |
+| **检索精度** | 小块 → 向量更"纯粹" → 匹配更精准 |
+| **上下文完整度** | 大块 → 包含更多上下文 → LLM 理解更好 |
+| **硬件/速度** | 几乎无关。384 维向量 100 字和 1000 字的计算量一样 |
+
+**经验值（不是从硬件算出来的）：**
+
+| 应用场景 | 推荐 chunk_size | 原因 |
+|---------|----------------|------|
+| FAQ / 问答对 | 200-500 | 每个 Q&A 就是一个自然块 |
+| 技术文档 | 500-1000 | 一个段落讲一个概念 |
+| 长篇文章 | 1000-2000 | 需要更多上下文 |
+| 代码库 | 按函数/类 | 不应按字符数切分 |
+| 对话记录 | 按轮次 | 一问一答是一个单元 |
+
+**我们为什么选 1000 chars + 200 overlap？**
+- 1000 字符 ≈ 250 个英文单词 ≈ 150-200 个中文词
+- MiniLM 限制约 256 token，1000 chars 基本在安全范围内
+- 200 overlap 保证相邻块的边界词不丢失
+- 这是 **经验值**，不是计算出来的。可以通过评估检索准确率来调整
+
+### 4.4 如何评估分块是否合理？
+
+**方法：对比实验**
+```python
+# 测试不同的 chunk_size
+for size in [300, 500, 800, 1000, 1500]:
+    chunker = DocumentChunker(chunk_size=size)
+    # 用同一个测试集跑检索
+    accuracy = evaluate_retrieval(chunker, test_questions, ground_truth)
+    print(f"chunk_size={size}: accuracy={accuracy}")
+```
+
+**好的分块 = 每个块包含一个完整语义单元**
+```
+✅ 好: "Alice works in Engineering. She earns 80000 per year."
+❌ 差: "Alice works in" (句子被切断)
+❌ 差: "Alice works in Engineering. She earns 80000 per year. 
+        Bob works in Marketing. Charlie works in Design..." (太多无关信息)
+```
+
+---
+
+## 五、向量是如何存储的？
+
+### 5.1 数据库表结构
 
 ```sql
 CREATE TABLE document_chunks (
@@ -129,7 +247,7 @@ CREATE TABLE document_chunks (
 );
 ```
 
-### 4.2 实际存储的数据
+### 5.2 实际存储的数据
 
 ```sql
 SELECT chunk_index,
@@ -156,9 +274,9 @@ FROM document_chunks;
 
 ---
 
-## 五、检索时如何匹配？
+## 六、检索时如何匹配？
 
-### 5.1 余弦相似度
+### 6.1 余弦相似度
 
 两个向量的夹角越小 → 方向越一致 → 语义越相似。
 
@@ -173,7 +291,7 @@ A · B = 0.8×0.7 + 0.1×0.15 + 0.9×0.85 = 1.34  ← 点积大 = 夹角小 = �
 A · C = 0.8×0.1 + 0.1×0.8 + 0.9×0.05 = 0.21  ← 点积小 = 夹角大 = 不相似
 ```
 
-### 5.2 pgvector 的 `<=>` 运算符
+### 6.2 pgvector 的 `<=>` 运算符
 
 ```sql
 -- pgvector 内置的余弦距离运算符
@@ -185,7 +303,7 @@ ORDER BY embedding <=> question_vector  -- 按距离升序
 LIMIT 5;
 ```
 
-### 5.3 为什么极快？
+### 6.3 为什么极快？
 
 **没有索引时（全表扫描）**：
 ```
@@ -215,7 +333,7 @@ CREATE INDEX ON document_chunks USING ivfflat (embedding vector_cosine_ops)
 
 ---
 
-## 六、完整检索 SQL 示例
+## 七、完整检索 SQL 示例
 
 ```sql
 -- 用户问: "Who works in Engineering?"
@@ -257,7 +375,7 @@ Question: Who works in Engineering?"
 
 ---
 
-## 七、关键代码路径
+## 八、关键代码路径
 
 | 步骤 | 文件 | 类/方法 |
 |------|------|---------|
@@ -270,7 +388,7 @@ Question: Who works in Engineering?"
 
 ---
 
-## 八、Phase 2 升级路线
+## 九、Phase 2 升级路线
 
 | 环节 | Phase 1 (当前) | Phase 2 |
 |------|---------------|---------|
@@ -282,7 +400,7 @@ Question: Who works in Engineering?"
 
 ---
 
-## 九、面试题汇总
+## 十、面试题汇总
 
 > 点击展开查看答案。
 
@@ -368,6 +486,8 @@ final = rrf_fusion(vector_results, keyword_results, weight=0.7)
 ---
 
 ### Q4: 文档分块（chunking）为什么重要？块太大或太小有什么问题？
+
+> 详见 [第四节：分块深度解析](#四分块chunking深度解析)
 
 <details>
 <summary>展开答案</summary>
