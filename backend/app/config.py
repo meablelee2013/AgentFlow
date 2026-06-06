@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     QWEN_API_KEY: str = ""
     QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+    # --- Web Search ---
+    SEARCH_BACKEND: str = "searxng"
+    SEARXNG_URL: str = "http://localhost:8080"
+
     # --- Embedding ---
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
 

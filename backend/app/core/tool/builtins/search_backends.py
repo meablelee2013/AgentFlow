@@ -210,21 +210,22 @@ class SearXNGBackend:
 # ── Backend Factory ────────────────────────────────────────
 
 def get_search_backend(name: str | None = None):
-    """Get a search backend by name. Defaults to DDG if no name or env var.
+    """Get a search backend by name. Defaults to SearXNG, falls back to DDG.
 
     Set SEARCH_BACKEND in .env to override:
+        SEARCH_BACKEND=searxng    → use SearXNG (default, self-hosted)
         SEARCH_BACKEND=tavily     → use Tavily
         SEARCH_BACKEND=brave      → use Brave
-        SEARCH_BACKEND=duckduckgo → use DDG (default)
+        SEARCH_BACKEND=duckduckgo → use DDG (free, unlimited)
     """
-    backend_name = name or os.getenv("SEARCH_BACKEND", "duckduckgo").lower()
+    backend_name = name or os.getenv("SEARCH_BACKEND", "searxng").lower()
 
     backends = {
+        "searxng": SearXNGBackend,
         "duckduckgo": DuckDuckGoBackend,
         "tavily": TavilyBackend,
         "brave": BraveBackend,
-        "searxng": SearXNGBackend,
     }
 
-    backend_cls = backends.get(backend_name, DuckDuckGoBackend)
+    backend_cls = backends.get(backend_name, SearXNGBackend)
     return backend_cls()
