@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Copy, Check, Pencil } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useChatStore } from "../../stores/chat";
 
 interface Props {
@@ -32,9 +34,7 @@ export function MessageBubble({ id, role, content }: Props) {
   };
 
   return (
-    <div
-      className={`group flex gap-3 animate-message-in ${isUser ? "flex-row-reverse" : ""}`}
-    >
+    <div className={`group flex gap-3 animate-message-in ${isUser ? "flex-row-reverse" : ""}`}>
       {/* Avatar */}
       <div
         className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 ${
@@ -51,44 +51,30 @@ export function MessageBubble({ id, role, content }: Props) {
       </div>
 
       {/* Content */}
-      <div className={`max-w-[72%] ${isUser ? "text-right" : ""}`}>
+      <div className={`max-w-[75%] ${isUser ? "text-right" : ""}`}>
         {editing ? (
-          /* Edit mode */
           <div className="flex flex-col gap-2">
             <textarea
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
-              className="w-80 px-4 py-2.5 text-[14px] leading-relaxed rounded-2xl border-2
+              className="w-96 px-4 py-2.5 text-[14px] leading-relaxed rounded-2xl border-2
                          border-ink/20 bg-white focus:outline-none focus:border-ink/50
                          resize-none font-sans"
-              rows={3}
+              rows={5}
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSaveEdit();
-                }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSaveEdit(); }
                 if (e.key === "Escape") handleCancelEdit();
               }}
             />
             <div className="flex gap-2 justify-end">
-              <button
-                onClick={handleCancelEdit}
-                className="px-2.5 py-1 text-[11px] text-gray-500 hover:text-gray-700 font-mono"
-              >
-                esc
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                className="px-3 py-1 text-[11px] bg-ink text-white rounded-md
-                           hover:bg-slate-hover font-mono transition-colors"
-              >
-                save ↵
-              </button>
+              <button onClick={handleCancelEdit}
+                className="px-2.5 py-1 text-[11px] text-gray-500 hover:text-gray-700 font-mono">esc</button>
+              <button onClick={handleSaveEdit}
+                className="px-3 py-1 text-[11px] bg-ink text-white rounded-md hover:bg-slate-hover font-mono transition-colors">save ↵</button>
             </div>
           </div>
         ) : (
-          /* Normal mode */
           <div
             className={`inline-block px-4 py-2.5 text-[14px] leading-relaxed ${
               isUser
@@ -96,7 +82,15 @@ export function MessageBubble({ id, role, content }: Props) {
                 : "bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm"
             }`}
           >
-            <p className="whitespace-pre-wrap">{content}</p>
+            {isUser ? (
+              <p className="whitespace-pre-wrap">{content}</p>
+            ) : (
+              <div className="prose prose-sm prose-stone max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {content}
+                </ReactMarkdown>
+              </div>
+            )}
           </div>
         )}
 
@@ -107,25 +101,12 @@ export function MessageBubble({ id, role, content }: Props) {
               isUser ? "justify-end" : ""
             }`}
           >
-            <button
-              onClick={handleCopy}
-              className="p-1 rounded hover:bg-black/5 transition-colors"
-              title="Copy"
-            >
-              {copied ? (
-                <Check size={12} className="text-accent" />
-              ) : (
-                <Copy size={12} className="text-gray-400" />
-              )}
+            <button onClick={handleCopy}
+              className="p-1 rounded hover:bg-black/5 transition-colors" title="Copy">
+              {copied ? <Check size={12} className="text-accent" /> : <Copy size={12} className="text-gray-400" />}
             </button>
-            <button
-              onClick={() => {
-                setEditText(content);
-                setEditing(true);
-              }}
-              className="p-1 rounded hover:bg-black/5 transition-colors"
-              title="Edit"
-            >
+            <button onClick={() => { setEditText(content); setEditing(true); }}
+              className="p-1 rounded hover:bg-black/5 transition-colors" title="Edit">
               <Pencil size={12} className="text-gray-400" />
             </button>
           </div>
