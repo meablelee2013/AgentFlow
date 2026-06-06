@@ -27,7 +27,15 @@ export function KnowledgeBase() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [urlValue, setUrlValue] = useState("");
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "processing">("idle");
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const SUPPORTED_FORMATS = [
+    ".pdf", ".docx", ".doc", ".md", ".markdown",
+    ".txt", ".csv", ".xlsx", ".xls", ".pptx", ".ppt",
+    ".json", ".epub", ".html", ".htm",
+  ];
+  const ACCEPT = SUPPORTED_FORMATS.join(",");
 
   const loadBases = async () => {
     try { setBases(await api.listBases()); } catch { /* */ }
@@ -207,83 +215,111 @@ export function KnowledgeBase() {
       </div>
 
       {/* Upload Section */}
-      <div className={`rounded-2xl border-2 border-dashed p-6 mb-6 transition-all ${
-        uploadState === "idle" ? "border-border" : "border-accent/50 bg-accent/[0.02]"
-      }`}>
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          {/* File */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">File Upload</p>
-            <div className="flex gap-2">
-              <input ref={fileRef} type="file"
-                onChange={e => setSelectedFile(e.target.files?.[0] || null)}
-                className="flex-1 text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg
-                           file:text-xs file:font-medium file:border-0 file:bg-ink/5 file:text-ink/70
-                           hover:file:bg-ink/10"
-                accept=".pdf,.docx,.doc,.md,.markdown,.txt,.text,.log,.csv,.xlsx,.xls,.pptx,.ppt,.json,.epub,.html,.htm"
-              />
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
+        onDrop={e => {
+          e.preventDefault();
+          setDragOver(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) setSelectedFile(file);
+        }}
+        className={`rounded-2xl border-2 border-dashed p-6 mb-6 transition-all cursor-pointer ${
+          dragOver
+            ? "border-accent bg-accent/[0.04] scale-[1.01]"
+            : uploadState !== "idle"
+              ? "border-accent/50 bg-accent/[0.02]"
+              : "border-border hover:border-ink/20 hover:bg-ink/[0.01]"
+        }`}
+        onClick={() => fileRef.current?.click()}
+      >
+        <input ref={fileRef} type="file" onChange={e => setSelectedFile(e.target.files?.[0] || null)}
+          className="hidden" accept={ACCEPT} />
+
+        {selectedFile ? (
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-12 h-12 rounded-xl bg-ink/5 flex items-center justify-center">
+              <FileText size={24} className="text-ink/50" />
             </div>
-            {selectedFile && (
-              <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
-                <FileText size={10} /> {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
-              </p>
-            )}
-          </div>
-
-          {/* URL */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Or Ingest URL</p>
-            <input type="url" value={urlValue}
-              onChange={e => setUrlValue(e.target.value)}
-              placeholder="https://..."
-              className="w-full px-3 py-1.5 text-xs rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ink/10"
-              onKeyDown={e => e.key === "Enter" && urlValue.trim() && handleUrlIngest()}
-            />
-          </div>
-        </div>
-
-        {/* Upload button */}
-        <div className="flex gap-2 justify-end">
-          {urlValue.trim() && (
-            <button onClick={handleUrlIngest}
-              disabled={uploadState !== "idle"}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl
-                         bg-violet-500 text-white hover:bg-violet-600 disabled:opacity-30 transition-colors">
-              <Link size={14} /> Ingest URL
+            <p className="text-sm font-medium text-ink">{selectedFile.name}</p>
+            <p className="text-xs text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB · Click to change</p>
+            <button
+              onClick={e => { e.stopPropagation(); setSelectedFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+            >
+              Remove
             </button>
-          )}
-          <button onClick={handleUpload}
-            disabled={!selectedFile || uploadState !== "idle"}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl
-                       bg-ink text-white hover:bg-slate-hover disabled:opacity-30 transition-colors">
-            <Upload size={14} />
-            {uploadState === "idle" ? "Upload" : uploadState === "uploading" ? "Uploading..." : "Processing..."}
-          </button>
-        </div>
-
-        {/* Progress indicator */}
-        {uploadState !== "idle" && (
-          <div className="mt-4">
-            <div className="flex items-center gap-2 mb-1">
-              {uploadState === "uploading" ? (
-                <Loader2 size={14} className="text-blue-500 animate-spin" />
-              ) : (
-                <Loader2 size={14} className="text-accent animate-spin" />
-              )}
-              <span className="text-xs font-medium text-ink/70">
-                {uploadState === "uploading" ? "Uploading file..." : "Processing — chunking, embedding, indexing..."}
-              </span>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-ink/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Upload size={24} className="text-ink/30" />
             </div>
-            <div className="h-1 bg-border rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all duration-500 ${
-                uploadState === "uploading"
-                  ? "w-1/3 bg-blue-400 animate-pulse"
-                  : "w-2/3 bg-accent animate-pulse"
-              }`} />
+            <div className="text-center">
+              <p className="text-sm font-medium text-ink">
+                {dragOver ? "Drop file here" : "Drag & drop file or click to browse"}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">PDF, DOCX, PPTX, CSV, JSON, EPUB, HTML, MD, TXT</p>
             </div>
           </div>
         )}
       </div>
+
+      {/* URL + Upload row */}
+      <div className="flex gap-3 mb-6">
+        <div className="flex-1">
+          <input type="url" value={urlValue}
+            onChange={e => setUrlValue(e.target.value)}
+            placeholder="Or paste a URL to ingest..."
+            className="w-full px-3 py-2 text-xs rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-ink/10"
+            onKeyDown={e => e.key === "Enter" && urlValue.trim() && handleUrlIngest()}
+          />
+        </div>
+        <button onClick={selectedFile ? handleUpload : () => {}}
+          disabled={!selectedFile || uploadState !== "idle"}
+          className="flex items-center gap-1.5 px-5 py-2 text-sm font-medium rounded-xl
+                     bg-ink text-white hover:bg-slate-hover disabled:opacity-30 transition-colors shrink-0">
+          <Upload size={14} />
+          {uploadState === "idle" ? "Upload" : uploadState === "uploading" ? "Uploading..." : "Processing..."}
+        </button>
+        {urlValue.trim() && (
+          <button onClick={handleUrlIngest}
+            disabled={uploadState !== "idle"}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl
+                       bg-violet-500 text-white hover:bg-violet-600 disabled:opacity-30 transition-colors shrink-0">
+            <Link size={14} /> Ingest
+          </button>
+        )}
+      </div>
+
+      {/* Supported formats hint */}
+      <div className="flex flex-wrap gap-1.5 mb-6">
+        <span className="text-[10px] text-gray-400 font-mono mr-1 mt-0.5">Formats:</span>
+        {SUPPORTED_FORMATS.map(f => (
+          <span key={f} className="text-[10px] px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 font-mono">
+            {f}
+          </span>
+        ))}
+      </div>
+
+      {/* Progress indicator */}
+      {uploadState !== "idle" && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <Loader2 size={14} className={uploadState === "uploading" ? "text-blue-500 animate-spin" : "text-accent animate-spin"} />
+            <span className="text-xs font-medium text-ink/70">
+              {uploadState === "uploading" ? "Uploading file..." : "Processing — chunking, embedding, indexing..."}
+            </span>
+          </div>
+          <div className="h-1 bg-border rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${
+              uploadState === "uploading"
+                ? "w-1/3 bg-blue-400 animate-pulse"
+                : "w-2/3 bg-accent animate-pulse"
+            }`} />
+          </div>
+        </div>
+      )}
 
       {/* Documents List */}
       <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
