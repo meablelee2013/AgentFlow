@@ -25,6 +25,11 @@ class KnowledgeBaseResponse(BaseModel):
     status: str
 
 
+class UrlIngestRequest(BaseModel):
+    url: str = Field(..., min_length=1, description="Web page URL to ingest")
+    knowledge_base_id: str | None = None
+
+
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1)
     knowledge_base_id: str | None = None
@@ -71,6 +76,31 @@ async def upload_document(
     finally:
         # Clean up uploaded file after processing
         file_path.unlink(missing_ok=True)
+
+    return KnowledgeBaseResponse(
+        id=str(kb.id),
+        name=kb.name,
+        status=kb.status,
+    )
+
+
+@router.post("/ingest-url", response_model=KnowledgeBaseResponse)
+async def ingest_url(
+    req: UrlIngestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ingest a web page URL into the RAG pipeline.
+
+    Fetches the page, extracts text content, and indexes it for retrieval.
+    """
+    pipeline = RAGPipeline(db)
+    kb_id = uuid.UUID(req.knowledge_base_id) if req.knowledge_base_id else None
+
+    try:
+        kb = await pipeline.ingest_url(req.url, knowledge_base_id=kb_id)
+    except Exception as e:
+        logger.error("URL ingestion failed", url=req.url, error=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     return KnowledgeBaseResponse(
         id=str(kb.id),

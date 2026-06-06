@@ -122,6 +122,82 @@ class RAGPipeline:
         )
         return kb
 
+    async def ingest_url(
+        self,
+        url: str,
+        knowledge_base_id: uuid.UUID | None = None,
+    ) -> KnowledgeBase:
+        """Ingest a web page into the RAG pipeline.
+
+        Steps: fetch HTML → extract text → chunk → embed → store
+
+        Args:
+            url: Web page URL to ingest
+            knowledge_base_id: Optional existing KB to add to
+
+        Returns:
+            The KnowledgeBase
+        """
+        import httpx
+        from bs4 import BeautifulSoup
+
+        # 1. Fetch page
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url, follow_redirects=True)
+            resp.raise_for_status()
+
+        # 2. Extract text
+        soup = BeautifulSoup(resp.text, "html.parser")
+        # Remove script and style elements
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n", strip=True)
+
+        # Use URL path as filename-like identifier
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        filename = parsed.path.strip("/").replace("/", "_") or parsed.netloc
+
+        # 3. Create KnowledgeBase
+        if knowledge_base_id:
+            kb = await self.db.get(KnowledgeBase, knowledge_base_id)
+        else:
+            kb = KnowledgeBase(name=parsed.netloc, status="processing")
+            self.db.add(kb)
+            await self.db.flush()
+
+        # 4. Create Document record
+        doc = Document(
+            knowledge_base_id=kb.id,
+            filename=filename,
+            file_type="url",
+            status="processing",
+        )
+        self.db.add(doc)
+        await self.db.flush()
+
+        # 5. Chunk → Embed → Store
+        chunks = self.chunker.split(text, source=url)
+        doc.chunk_count = len(chunks)
+        chunk_texts = [c.content for c in chunks]
+        embeddings = await self.embedder.embed(chunk_texts)
+
+        for chunk, embedding in zip(chunks, embeddings):
+            db_chunk = DocumentChunk(
+                document_id=doc.id,
+                content=chunk.content,
+                chunk_index=chunk.index,
+                embedding=embedding,
+            )
+            self.db.add(db_chunk)
+
+        doc.status = "ready"
+        kb.status = "ready"
+        await self.db.commit()
+
+        logger.info("RAG URL ingestion complete", url=url, chunks=len(chunks))
+        return kb
+
     # ── Query ───────────────────────────────────────────────
 
     async def query(
