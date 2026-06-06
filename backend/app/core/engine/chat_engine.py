@@ -26,7 +26,7 @@ import operator
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from app.config import settings
@@ -131,10 +131,17 @@ class ChatGraphEngine:
             "configurable": {"thread_id": tid}
         }
 
-        input_state = {
-            "messages": [HumanMessage(content=m["content"]) for m in messages]
-            if messages else []
-        }
+        input_messages = [HumanMessage(content=m["content"]) for m in messages] if messages else []
+        # Prepend system prompt: always use Markdown for structured responses
+        input_messages.insert(0, SystemMessage(content=(
+            "You are a helpful AI assistant. Always format your responses using Markdown "
+            "for clarity. Use headers (##), bullet lists (-), numbered lists (1.), "
+            "**bold** for emphasis, `code` for technical terms, and > for quotes. "
+            "For any information that benefits from structure — lists, comparisons, "
+            "steps, or sections — use the appropriate Markdown syntax. "
+            "Keep responses concise and well-organized."
+        )))
+        input_state = {"messages": input_messages}
 
         result = await self._app.ainvoke(input_state, config=config)
 
@@ -164,10 +171,13 @@ class ChatGraphEngine:
             "configurable": {"thread_id": tid}
         }
 
-        input_state = {
-            "messages": [HumanMessage(content=m["content"]) for m in messages]
-            if messages else []
-        }
+        input_messages = [HumanMessage(content=m["content"]) for m in messages] if messages else []
+        input_messages.insert(0, SystemMessage(content=(
+            "You are a helpful AI assistant. Always format your responses using Markdown "
+            "for clarity. Use headers (##), bullet lists (-), numbered lists (1.), "
+            "**bold** for emphasis, `code` for technical terms, and > for quotes."
+        )))
+        input_state = {"messages": input_messages}
 
         # streaming output — astream_events captures each token
         async for event in self._app.astream_events(input_state, config=config, version="v2"):
