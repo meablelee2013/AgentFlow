@@ -1,7 +1,7 @@
 """
-LLMFactory — 工厂模式创建 Provider 实例
+LLMFactory — Factory pattern for creating Provider instances
 
-调用链:
+Call chain:
 ```mermaid
 sequenceDiagram
     participant Service
@@ -20,16 +20,16 @@ sequenceDiagram
     DeepSeekProvider-->>Service: response
 ```
 
-设计模式: **注册表模式 (Registry Pattern) + 工厂方法 (Factory Method)**
-    新增 Provider 只需在 PROVIDER_REGISTRY 中注册，
-    无需修改任何调用方代码。
+Design pattern: **Registry Pattern + Factory Method**
+    Add a new Provider by registering in PROVIDER_REGISTRY only,
+    no caller code changes needed.
 """
 
 from app.core.llm.providers.base import BaseLLMProvider
 from app.core.llm.providers.deepseek import DeepSeekProvider
 from app.core.llm.providers.qwen import QwenProvider
 
-# Provider 注册表 — 新增 Provider 在此添加一行即可
+# Provider registry — add one line here for a new Provider
 PROVIDER_REGISTRY: dict[str, type[BaseLLMProvider]] = {
     "deepseek": DeepSeekProvider,
     "qwen": QwenProvider,
@@ -37,9 +37,9 @@ PROVIDER_REGISTRY: dict[str, type[BaseLLMProvider]] = {
 
 
 class LLMFactory:
-    """LLM Provider 工厂
+    """LLM Provider factory
 
-    使用方式:
+    Usage:
         factory = LLMFactory()
         provider = factory.create("deepseek")
         response = await provider.invoke([{"role": "user", "content": "Hi"}])
@@ -47,17 +47,17 @@ class LLMFactory:
 
     @staticmethod
     def create(provider_name: str = "deepseek", **kwargs) -> BaseLLMProvider:
-        """创建 LLM Provider 实例
+        """Create LLM Provider instance
 
         Args:
-            provider_name: deepseek | qwen | (将来: openai, moonshot...)
-            **kwargs: 传递给 Provider 构造函数的参数 (如 api_key)
+            provider_name: deepseek | qwen | (future: openai, moonshot...)
+            **kwargs: extra kwargs passed to Provider constructor (e.g. api_key)
 
         Returns:
-            BaseLLMProvider 子类实例
+            BaseLLMProvider subclass instance
 
         Raises:
-            ValueError: provider_name 不在注册表中
+            ValueError: provider_name not in registry
         """
         provider_class = PROVIDER_REGISTRY.get(provider_name)
         if not provider_class:
@@ -70,5 +70,5 @@ class LLMFactory:
 
     @staticmethod
     def list_providers() -> list[str]:
-        """列出所有已注册的 Provider 名称"""
+        """List all registered Provider names"""
         return list(PROVIDER_REGISTRY.keys())

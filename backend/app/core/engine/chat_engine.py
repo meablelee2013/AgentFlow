@@ -1,21 +1,21 @@
 """
-ChatGraphEngine — 对话引擎
+ChatGraphEngine — Conversation engine
 
-基于 LangGraph StateGraph 的对话引擎，实现:
-    1. 多轮对话（messages 使用 operator.add 累加）
-    2. 会话持久化（Checkpointer + thread_id）
-    3. 流式输出（astream_events）
-    4. 历史恢复（相同 thread_id → 自动加载上下文）
+LangGraph StateGraph-based conversation engine, implements:
+    1. Multi-turn conversation (messages use operator.add for accumulation)
+    2. Session persistence (Checkpointer + thread_id)
+    3. Streaming output (astream_events)
+    4. History recovery (same thread_id → auto-loads context)
 
-StateGraph 结构:
+StateGraph structure:
     START → chat_node → END
-                     └→ 条件路由 (Phase 2: intent → tool → rag)
+                     └→ conditional routing (Phase 2: intent → tool → rag)
 
-State 设计:
+State design:
     ChatState(TypedDict):
         messages: Annotated[list[BaseMessage], operator.add]
-        └── Reducer: operator.add = 列表拼接（累加模式）
-        └── 每个节点的返回 dict 会与已有 state 拼接，不是覆盖
+        └── Reducer: operator.add = list concatenation (accumulation mode)
+        └── each node's returned dict is concatenated with existing state, not overwritten
 """
 
 import uuid
@@ -33,16 +33,16 @@ from app.core.llm.factory import LLMFactory
 from app.core.engine.checkpoint import CheckpointerManager
 
 
-# ── State 定义 ──────────────────────────────────────────────
+# ── State definition ──────────────────────────────────────────────
 
 
 class ChatState(TypedDict):
-    """对话状态
+    """Conversation state
 
-    关键设计:
-        messages 使用 operator.add reducer
-        → 新消息拼接到旧消息列表，不覆盖
-        → 这是 conversation memory 的基础
+    Key design:
+        messages uses operator.add reducer
+        → new messages concatenated to existing list, not overwritten
+        → this is the foundation of conversation memory
     """
     messages: Annotated[List[BaseMessage], operator.add]
 
@@ -51,19 +51,19 @@ class ChatState(TypedDict):
 
 
 class ChatGraphEngine:
-    """LangGraph 对话引擎
+    """LangGraph Conversation engine
 
-    核心流程:
-        1. compile() → 构建 StateGraph + 注入 Checkpointer
-        2. invoke(state, config) → 执行图，每次执行产生新 checkpoint
-        3. 相同 thread_id → 自动从最新 checkpoint 恢复上下文
+    Core flow:
+        1. compile() → builds StateGraph + injects Checkpointer
+        2. invoke(state, config) → executes graph, each execution creates new checkpoint
+        3. Same thread_id → auto-recovers context from latest checkpoint
 
-    使用示例:
+    Usage example:
         engine = ChatGraphEngine()
         result = await engine.run([{"role": "user", "content": "Hello"}])
-        # 继续同一会话:
+        # continue same session:
         result = await engine.run(
-            [{"role": "user", "content": "还记得我吗？"}],
+            [{"role": "user", "content": "Remember me?"}],
             thread_id=result["thread_id"]
         )
     """
@@ -74,9 +74,9 @@ class ChatGraphEngine:
         self._app = self._graph.compile(checkpointer=self._checkpointer)
 
     def _build_graph(self) -> StateGraph:
-        """构建对话 StateGraph
+        """Build conversation StateGraph
 
-        Graph 结构:
+        Graph structure:
             START → chat_node → END
         """
         workflow = StateGraph(ChatState)
@@ -86,13 +86,13 @@ class ChatGraphEngine:
         return workflow
 
     async def _chat_node(self, state: ChatState) -> dict:
-        """对话节点 — 调用 LLM 生成回复
+        """Chat node — calls LLM to generate response
 
         Args:
-            state: 当前 ChatState, 包含完整消息历史
+            state: Current ChatState, containing full message history
 
         Returns:
-            dict with "messages" key — operator.add 将其拼接到现有列表
+            dict with "messages" key — operator.add appends to existing list
         """
         provider = LLMFactory.create("deepseek")
         llm = ChatOpenAI(
@@ -111,17 +111,17 @@ class ChatGraphEngine:
         messages: list[dict],
         thread_id: str | None = None,
     ) -> dict[str, Any]:
-        """执行对话，返回完整结果
+        """Execute conversation, return complete result
 
         Args:
             messages: [{"role": "user", "content": "..."}]
-            thread_id: 会话 ID，None 则自动生成新会话
+            thread_id: Session ID, None creates a new session
 
         Returns:
             {
                 "thread_id": "uuid-string",
                 "messages": [{"role": "...", "content": "..."}, ...],
-                "is_new": bool  # 是否新会话
+                "is_new": bool  # whether new session
             }
         """
         is_new = thread_id is None
@@ -149,9 +149,9 @@ class ChatGraphEngine:
         messages: list[dict],
         thread_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        """流式执行对话，逐个 token 推送 SSE 事件
+        """Stream conversation, push SSE events token by token
 
-        用法 (FastAPI):
+        Usage (FastAPI):
             async def chat_stream():
                 async for token in engine.stream(messages):
                     yield f"data: {token}\n\n"
@@ -169,7 +169,7 @@ class ChatGraphEngine:
             if messages else []
         }
 
-        # 流式输出 — astream_events 捕获每个 token
+        # streaming output — astream_events captures each token
         async for event in self._app.astream_events(input_state, config=config, version="v2"):
             kind = event["event"]
             if kind == "on_chat_model_stream":
@@ -178,10 +178,10 @@ class ChatGraphEngine:
                     yield content
 
     async def get_history(self, thread_id: str) -> list[dict]:
-        """获取会话的完整消息历史
+        """Get complete message history for a session
 
         Args:
-            thread_id: 会话 ID
+            thread_id: Session ID
 
         Returns:
             [{"role": "user", "content": "..."}, ...]
@@ -195,7 +195,7 @@ class ChatGraphEngine:
         return []
 
     def _serialize_messages(self, messages: list[BaseMessage]) -> list[dict]:
-        """将 LangChain message 对象序列化为 dict"""
+        """Serialize LangChain message objects to dicts"""
         result = []
         for msg in messages:
             if isinstance(msg, HumanMessage):

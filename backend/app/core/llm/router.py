@@ -1,27 +1,27 @@
 """
-LLMRouter — 智能模型路由
+LLMRouter — intelligent model routing
 
-根据消息特征自动选择最合适的 LLM Provider。
-Phase 1: 默认返回 deepseek（后续升级到成本/延迟感知路由）
+Auto-selects the best LLM Provider based on message characteristics.
+Phase 1: always returns deepseek (upgrade to cost/latency-aware routing later)
 
-设计模式: **策略 + 责任链**
-    每个路由规则是独立 handler，匹配则返回，不匹配则传递给下一个规则。
+Design pattern: **Strategy + Chain of Responsibility**
+    Each routing rule is an independent handler; match returns, no match passes to next.
 
-升级路线:
-    Phase 1 → 固定 deepseek
-    Phase 2 → 短消息→deepseek, 长上下文→qwen, 代码→moonshot
-    Phase 3 → 基于实时成本+延迟的动态路由
+Upgrade roadmap:
+    Phase 1 → fixed deepseek
+    Phase 2 → short msg→deepseek, long ctx→qwen, code→moonshot
+    Phase 3 → real-time cost+latency dynamic routing
 """
 
 
 class LLMRouter:
-    """智能模型路由器"""
+    """Intelligent model router"""
 
     DEFAULT_PROVIDER = "deepseek"
 
     async def route(self, messages: list[dict]) -> str:
-        """根据消息内容选择最佳 Provider
+        """Select best Provider based on message content
 
-        Phase 1: 始终返回 deepseek（简化实现，后续升级）
+        Phase 1: always returns deepseek (simplified, upgrade later)
         """
         return self.DEFAULT_PROVIDER

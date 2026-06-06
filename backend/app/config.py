@@ -1,12 +1,12 @@
-"""AgentFlow 应用配置 — 从 .env 和系统环境变量读取"""
+"""AgentFlow application config — reads from .env and system environment variables"""
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """应用配置
+    """Application settings
 
-    优先级: 系统环境变量 > .env 文件 > 默认值
+    Priority: system env vars > .env file > defaults
     """
 
     model_config = SettingsConfigDict(
@@ -15,13 +15,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- 应用 ---
+    # --- App ---
     APP_NAME: str = "AgentFlow"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
 
-    # --- 数据库 ---
+    # --- Database ---
     DATABASE_URL: str = (
         "postgresql+asyncpg://agentflow:agentflow@localhost:5432/agentflow"
     )
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # --- Embedding ---
     EMBEDDING_MODEL: str = "deepseek-chat"
 
-    # --- 向量存储 ---
+    # --- Vector Storage ---
     VECTOR_DIMENSION: int = 1536
 
 

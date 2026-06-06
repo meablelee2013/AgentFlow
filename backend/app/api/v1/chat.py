@@ -1,4 +1,4 @@
-"""Chat API — 对话端点"""
+"""Chat API — conversation endpoints"""
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -9,13 +9,13 @@ from app.core.engine.chat_engine import ChatGraphEngine
 logger = structlog.get_logger()
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-# 全局引擎实例（生产环境应用依赖注入）
+# Global engine instance (use dependency injection in production)
 engine = ChatGraphEngine()
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, description="用户消息")
-    thread_id: str | None = Field(None, description="会话 ID，不传则新建")
+    message: str = Field(..., min_length=1, description="User message")
+    thread_id: str | None = Field(None, description="Session ID, new if omitted")
 
 
 class ChatResponse(BaseModel):
@@ -31,7 +31,7 @@ class HistoryResponse(BaseModel):
 
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    """发送消息 — 同步返回完整回答"""
+    """Send message — synchronous full response"""
     result = await engine.run(
         [{"role": "user", "content": req.message}],
         thread_id=req.thread_id,
@@ -46,7 +46,7 @@ async def chat(req: ChatRequest):
 
 @router.post("/stream")
 async def chat_stream(req: ChatRequest):
-    """发送消息 — SSE 流式返回"""
+    """Send message — SSE streaming response"""
     async def event_stream():
         async for token in engine.stream(
             [{"role": "user", "content": req.message}],
@@ -60,6 +60,6 @@ async def chat_stream(req: ChatRequest):
 
 @router.get("/history/{thread_id}", response_model=HistoryResponse)
 async def get_history(thread_id: str):
-    """获取会话历史消息"""
+    """Get conversation history messages"""
     messages = await engine.get_history(thread_id)
     return HistoryResponse(thread_id=thread_id, messages=messages)
