@@ -83,6 +83,11 @@ export const api = {
   getHistory: (threadId: string) =>
     request<HistoryResponse>(`/chat/history/${threadId}`),
 
+  listConversations: () =>
+    request<{ thread_id: string; title: string; updated_at: string | null }[]>(
+      "/chat/conversations"
+    ),
+
   // Knowledge Base
   upload: (file: File, kbId?: string) => {
     const form = new FormData();

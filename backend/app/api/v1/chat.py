@@ -32,6 +32,31 @@ class HistoryResponse(BaseModel):
     messages: list[dict]
 
 
+class ConversationItem(BaseModel):
+    thread_id: str
+    title: str
+    updated_at: str | None = None
+
+
+@router.get("/conversations", response_model=list[ConversationItem])
+async def list_conversations(db: AsyncSession = Depends(get_db)):
+    """List all conversation threads."""
+    from sqlalchemy import select
+    from app.models.conversation import Conversation as ConvModel
+    result = await db.execute(
+        select(ConvModel).order_by(ConvModel.updated_at.desc()).limit(50)
+    )
+    convs = result.scalars().all()
+    return [
+        ConversationItem(
+            thread_id=c.thread_id,
+            title=c.title or "Untitled",
+            updated_at=c.updated_at.isoformat() if c.updated_at else None,
+        )
+        for c in convs
+    ]
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     """Send message — synchronous full response"""
