@@ -26,6 +26,8 @@ from app.models.knowledge import KnowledgeBase, Document, DocumentChunk
 from app.core.rag.chunker import DocumentChunker
 from app.core.rag.embedder import Embedder
 from app.core.rag.retriever import HybridRetriever
+from app.core.rag.parsers.registry import ParserRegistry
+from app.core.rag.parsers.url_parser import UrlParser
 
 logger = structlog.get_logger()
 
@@ -44,6 +46,7 @@ class RAGPipeline:
         self.chunker = DocumentChunker(strategy="recursive")
         self.embedder = Embedder()
         self.retriever = HybridRetriever(db)
+        self.parser_registry = ParserRegistry()
 
     # ── Ingestion ───────────────────────────────────────────
 
@@ -67,8 +70,8 @@ class RAGPipeline:
         filename = path.name
         file_type = path.suffix.lower().lstrip(".")
 
-        # 1. Parse text from file
-        text = self._parse_file(file_path, file_type)
+        # 1. Parse text via auto-dispatched parser
+        text = self.parser_registry.parse(file_path)
 
         # 2. Create or reuse KnowledgeBase
         if knowledge_base_id:
@@ -137,20 +140,8 @@ class RAGPipeline:
         Returns:
             The KnowledgeBase
         """
-        import httpx
-        from bs4 import BeautifulSoup
-
-        # 1. Fetch page
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, follow_redirects=True)
-            resp.raise_for_status()
-
-        # 2. Extract text
-        soup = BeautifulSoup(resp.text, "html.parser")
-        # Remove script and style elements
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
-            tag.decompose()
-        text = soup.get_text(separator="\n", strip=True)
+        # 1. Fetch and extract text via UrlParser
+        text = await UrlParser.fetch(url)
 
         # Use URL path as filename-like identifier
         from urllib.parse import urlparse
@@ -227,32 +218,3 @@ class RAGPipeline:
             "context": "\n\n".join(r["content"] for r in results),
         }
 
-    # ── Helpers ─────────────────────────────────────────────
-
-    def _parse_file(self, file_path: str, file_type: str) -> str:
-        """Parse text content from various file formats."""
-        if file_type == "pdf":
-            return self._parse_pdf(file_path)
-        elif file_type in ("docx", "doc"):
-            return self._parse_docx(file_path)
-        elif file_type in ("md", "markdown", "txt"):
-            return Path(file_path).read_text(encoding="utf-8")
-        else:
-            raise ValueError(f"Unsupported file type: {file_type}")
-
-    def _parse_pdf(self, file_path: str) -> str:
-        """Extract text from PDF."""
-        from PyPDF2 import PdfReader
-        reader = PdfReader(file_path)
-        text = ""
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text
-
-    def _parse_docx(self, file_path: str) -> str:
-        """Extract text from DOCX."""
-        from docx import Document as DocxDocument
-        doc = DocxDocument(file_path)
-        return "\n".join(p.text for p in doc.paragraphs)
