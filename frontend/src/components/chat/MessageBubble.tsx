@@ -85,7 +85,24 @@ export function MessageBubble({ id, role, content }: Props) {
             {isUser ? (
               <p className="whitespace-pre-wrap">{content}</p>
             ) : (
-              <div className="md-content max-w-none">
+              <div className="
+                [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-2
+                [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1.5
+                [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
+                [&_p]:my-1.5 [&_p]:leading-relaxed
+                [&_ul]:pl-5 [&_ul]:my-1.5 [&_ol]:pl-5 [&_ol]:my-1.5
+                [&_li]:my-0.5 [&_li]:leading-relaxed
+                [&_code]:bg-[#f0ede8] [&_code]:text-[#d6336c] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.88em] [&_code]:font-mono
+                [&_pre]:bg-[#1a1a1a] [&_pre]:text-[#e8e5e0] [&_pre]:p-3.5 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_pre]:my-2 [&_pre]:text-[0.85em] [&_pre]:leading-relaxed
+                [&_pre_code]:bg-transparent [&_pre_code]:text-inherit [&_pre_code]:p-0 [&_pre_code]:text-inherit
+                [&_blockquote]:border-l-[3px] [&_blockquote]:border-[#d4d0c8] [&_blockquote]:pl-3.5 [&_blockquote]:my-2 [&_blockquote]:text-gray-500 [&_blockquote]:italic
+                [&_a]:text-blue-600 [&_a]:underline
+                [&_strong]:font-semibold
+                [&_table]:w-full [&_table]:border-collapse [&_table]:my-2 [&_table]:text-sm
+                [&_th]:border [&_th]:border-[#d4d0c8] [&_th]:p-2 [&_th]:bg-[#f5f2ed] [&_th]:font-semibold
+                [&_td]:border [&_td]:border-[#d4d0c8] [&_td]:p-2
+                [&_hr]:border-none [&_hr]:border-t [&_hr]:border-[#d4d0c8] [&_hr]:my-3
+              ">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {content}
                 </ReactMarkdown>
