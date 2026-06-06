@@ -3,6 +3,7 @@ import type { DragEvent } from "react";
 import {
   ReactFlow, Controls, Background, MiniMap, addEdge,
   useNodesState, useEdgesState, BackgroundVariant, Panel, MarkerType,
+  Handle, Position,
 } from "@xyflow/react";
 import type { Connection, Node, Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -21,17 +22,15 @@ const NODE_TYPES_PALETTE = [
 ];
 
 const START_NODE: Node = {
-  id: "start", type: "default",
+  id: "start", type: "startNode",
   position: { x: 80, y: 80 },
   data: { label: "START" },
-  style: { background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 20, fontWeight: 600, fontSize: 12, padding: "8px 20px" },
 };
 
 const END_NODE: Node = {
-  id: "end", type: "default",
+  id: "end", type: "endNode",
   position: { x: 80, y: 400 },
   data: { label: "END" },
-  style: { background: "#faf7f2", color: "#1a1a1a", border: "2px solid #1a1a1a", borderRadius: 20, fontWeight: 600, fontSize: 12, padding: "8px 20px" },
 };
 
 const initialNodes: Node[] = [START_NODE, END_NODE];
@@ -56,14 +55,36 @@ function CustomNode({ data, type }: { data: Record<string, unknown>; type: strin
   };
 
   return (
-    <div className={`px-4 py-2.5 rounded-xl border-2 shadow-sm min-w-[120px] text-center ${colors[type] || "border-gray-200 bg-white"}`}>
+    <div className={`relative px-4 py-2.5 rounded-xl border-2 shadow-sm min-w-[120px] text-center ${colors[type] || "border-gray-200 bg-white"}`}>
+      <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-ink/40 !border-2 !border-white" />
       <p className="text-xs font-semibold text-ink/80">{labels[type] || type}</p>
       {data?.label ? <p className="text-[10px] text-gray-400 mt-0.5 truncate max-w-[140px]">{String(data.label)}</p> : null}
+      <Handle type="source" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-ink/40 !border-2 !border-white" />
+    </div>
+  );
+}
+
+function StartNode() {
+  return (
+    <div className="relative px-5 py-2 bg-ink text-white rounded-full font-semibold text-xs">
+      <Handle type="source" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-ink !border-2 !border-white" />
+      START
+    </div>
+  );
+}
+
+function EndNode() {
+  return (
+    <div className="relative px-5 py-2 bg-warm text-ink border-2 border-ink rounded-full font-semibold text-xs">
+      <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-ink !border-2 !border-white" />
+      END
     </div>
   );
 }
 
 const nodeTypes = {
+  startNode: StartNode,
+  endNode: EndNode,
   chat: (props: NodeProps) => <CustomNode {...props} type="chat" />,
   rag: (props: NodeProps) => <CustomNode {...props} type="rag" />,
   tool: (props: NodeProps) => <CustomNode {...props} type="tool" />,
@@ -116,6 +137,12 @@ export function WorkflowEditor() {
     [reactFlowInstance, setNodes]
   );
 
+  const mapType = (t: string | undefined) => {
+    if (t === "startNode") return "start";
+    if (t === "endNode") return "end";
+    return t || "chat";
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -124,7 +151,7 @@ export function WorkflowEditor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: wfName,
-          nodes: nodes.map((n: Node) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+          nodes: nodes.map((n: Node) => ({ id: n.id, type: mapType(n.type), position: n.position, data: n.data })),
           edges: edges.map((e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle })),
         }),
       });
@@ -142,7 +169,7 @@ export function WorkflowEditor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: wfName,
-          nodes: nodes.map((n: Node) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+          nodes: nodes.map((n: Node) => ({ id: n.id, type: mapType(n.type), position: n.position, data: n.data })),
           edges: edges.map((e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle })),
         }),
       });
