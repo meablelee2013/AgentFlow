@@ -279,3 +279,309 @@ Question: Who works in Engineering?"
 | 索引 | 无（数据少） | IVFFlat / HNSW 索引 |
 | 分块 | 固定大小 + 递归 | 语义分块 + 重叠窗口 |
 | 召回 | Top-K | Rerank（召回 20 → 精排 Top-5） |
+
+---
+
+## 九、面试题汇总
+
+> 点击展开查看答案。
+
+### Q1: 什么是 RAG？为什么需要 RAG？
+
+<details>
+<summary>展开答案</summary>
+
+**RAG**（Retrieval-Augmented Generation）= 检索增强生成。
+
+LLM 有两个致命问题：
+1. **知识截止**：训练数据有截止日期，不知道最新信息
+2. **幻觉**：不知道的事会编造
+
+RAG 解决思路：**先检索，再回答**。
+- 用户提问 → 从知识库检索相关文档 → 把文档和问题一起喂给 LLM → LLM 基于文档回答
+- 优点：答案可溯源（有引用）、知识可更新（加文档就行）、减少幻觉（有事实约束）
+
+```python
+# 传统 LLM
+answer = llm("Who works in Engineering?")  # 可能编造
+
+# RAG
+chunks = vector_search("Who works in Engineering?")  # 先检索
+context = "\n".join([c.content for c in chunks])
+answer = llm(f"Based on: {context}\n\nWho works in Engineering?")  # 有据可查
+```
+</details>
+
+---
+
+### Q2: Embedding 是什么？为什么相似文本的向量会相近？
+
+<details>
+<summary>展开答案</summary>
+
+**Embedding** = 把文本映射到高维空间中的一个点（向量）。
+
+核心原理：**分布式假设**——"一个词的含义由它周围的词决定"。
+- "The cat sat on the mat" → cat 和 mat 总是出现在相似语境 → 向量相近
+- 训练时模型学习：让语义相近的文本向量靠近，语义无关的文本向量远离
+
+举例：
+```
+"Alice is an engineer"         → [0.8, 0.1, 0.9] 
+"Bob is a software developer"  → [0.7, 0.15, 0.85]  ← 和上面接近（都是技术人员）
+"The weather is nice today"    → [0.0, 0.5, 0.0]    ← 向量完全不同
+```
+
+为什么 384 维？维度越高，能编码的语义信息越多，但计算越慢。384 是轻量级的 sweet spot。
+</details>
+
+---
+
+### Q3: 为什么用向量检索而不是直接用 SQL LIKE 或 Elasticsearch？
+
+<details>
+<summary>展开答案</summary>
+
+| 方法 | 匹配方式 | 问题 |
+|------|---------|------|
+| SQL LIKE | 字符串匹配 | "engineer" ≠ "developer"，找不到同义词 |
+| Elasticsearch BM25 | 关键词匹配 | "tech staff" 找不到 "Engineering dept" |
+| 向量检索 | 语义相似度 | "研发" 和 "R&D" 向量接近，能互相找到 |
+
+**三者不是替代关系，是互补关系。**
+
+我们的实现用了混合检索（Phase 2）：
+```python
+# 向量检索：理解语义
+vector_results = cosine_search(question_embedding)  # "engineer" 能找到 "developer"
+
+# 关键词检索：精确匹配
+keyword_results = bm25_search(question)  # "Error-500" 精确匹配日志中的错误码
+
+# RRF 融合：取两种结果的重叠高分项
+final = rrf_fusion(vector_results, keyword_results, weight=0.7)
+```
+
+面试金句：**"向量检索管语义，全文检索管精确，两者互补。"**
+</details>
+
+---
+
+### Q4: 文档分块（chunking）为什么重要？块太大或太小有什么问题？
+
+<details>
+<summary>展开答案</summary>
+
+分块是 RAG 最被低估的环节。块大小直接影响检索质量：
+
+| 块大小 | 问题 |
+|--------|------|
+| **太小** (100 chars) | 上下文断裂，`"Alice, 30, Engineering"` 没有标题行不知道列含义 |
+| **太大** (5000 chars) | 噪音多，检索时匹配到 irrelevant 内容，LLM 上下文窗口浪费 |
+| **合适** (500-1000 chars) | 一个块包含一个完整语义单元 |
+
+我们的策略：
+```python
+class DocumentChunker:
+    strategy = "recursive"  # 优先按段落分，其次按句子分
+    chunk_size = 1000       # 每块最多 1000 字符
+    overlap = 200           # 相邻块之间重叠 200 字符
+    
+    # 为什么要 overlap？
+    # "Alice works in Engineering. She earns 80000."
+    # 块 1: "Alice works in Engineering."
+    # 块 2: "Engineering. She earns 80000."  ← overlap 保证"Engineering"不丢失
+```
+
+面试时可以提的进阶点：**语义分块**（用 LLM 判断自然段落边界）、**父子分块**（小块检索 + 大块回填上下文）。
+</details>
+
+---
+
+### Q5: pgvector 索引原理是什么？为什么能这么快？
+
+<details>
+<summary>展开答案</summary>
+
+pgvector 的 **IVFFlat 索引**（Inverted File with Flat compression）：
+
+```
+Step 1: 预计算阶段（建索引时）
+  100 万个向量 → K-means 聚类 → 分成 100 个"列表"（lists）
+  每个列表有一个"中心点"（centroid）
+
+Step 2: 查询时
+  查询向量 → 只跟 100 个中心点比较距离
+  → 找到最近的 1-3 个列表
+  → 只扫描这 1-3 个列表中的向量（约 1-3 万条）
+  → 而不是全表 100 万条！
+
+加速比: 100万 / 3万 ≈ 33x
+```
+
+```sql
+-- 建索引
+CREATE INDEX ON document_chunks 
+  USING ivfflat (embedding vector_cosine_ops) 
+  WITH (lists = 100);
+
+-- lists 参数经验值:
+-- 数据量 < 10万: lists = 数据量/1000
+-- 数据量 > 10万: lists = sqrt(数据量)
+```
+
+**HNSW 索引**（更先进，pgvector 也支持）：
+- 构建多层图结构，像"高速公路 + 城市道路"
+- 查询时从高层快速定位区域 → 低层精确搜索
+- 比 IVFFlat 快 5-10x，但构建时间更长、内存占用更大
+</details>
+
+---
+
+### Q6: 从上传文件到用户检索到答案，完整链路是什么？
+
+<details>
+<summary>展开答案</summary>
+
+```
+用户上传 PDF
+  │
+  ▼
+① Parser 解析  (PdfParser/DocxParser/CsvParser...)
+  → "Alice, 30, Engineering, 80000\nBob, 25, Marketing..."
+  │
+  ▼
+② Chunker 分块 (DocumentChunker, recursive strategy)
+  → [Chunk 0: "Row 1: name: Alice | age: 30 | ...", Chunk 1: "Row 2: ..."]
+  │
+  ▼
+③ Embedder 向量化 (TF-IDF, 384-dim)
+  → Chunk 0: [0.045, 0.023, ...] (384 floats)
+  → Chunk 1: [0.032, 0.067, ...] (384 floats)
+  │
+  ▼
+④ 存入 PostgreSQL (pgvector)
+  → INSERT INTO document_chunks (content, embedding) VALUES (...)
+  │
+  ▼
+⑤ 用户提问: "Who works in Engineering?"
+  │
+  ▼
+⑥ 问题向量化 (相同 Embedder)
+  → [0.041, 0.028, ...] (384 floats)
+  │
+  ▼
+⑦ pgvector 余弦搜索 (IVFFlat 索引)
+  → SELECT ... ORDER BY embedding <=> question_vector LIMIT 5
+  → 返回最相似的 5 个 chunk
+  │
+  ▼
+⑧ 拼接 Context
+  → "Row 1: name: Alice | ...\nRow 3: name: Charlie | ..."
+  │
+  ▼
+⑨ 喂给 LLM
+  → System: "Based on the following info, answer the question."
+  → Context: {chunks}
+  → User: "Who works in Engineering?"
+  │
+  ▼
+⑩ LLM 回答
+  → "Alice and Charlie work in Engineering. Alice earns 80k, Charlie 95k."
+```
+
+优化点：
+- 步骤⑦⑧ 之间加 **Rerank**：召回 20 个 chunks → 精排模型打分 → 取 Top-3
+- 步骤③ 升级为 **Sentence Transformers** → 语义理解更好
+- 步骤④ 可以加 **缓存**：相同问题直接返回，不重复检索
+</details>
+
+---
+
+### Q7: 混合检索（Hybrid Search）的原理是什么？
+
+<details>
+<summary>展开答案</summary>
+
+混合检索 = 向量检索 + 关键词检索 + RRF 融合。
+
+```python
+# 1. 向量检索（语义匹配）
+vector_results = pgvector_cosine_search("Who works in Engineering?")
+# → 返回: Alice(0.94), Charlie(0.87), Diana(0.43)
+
+# 2. 关键词检索（精确匹配）  
+keyword_results = postgresql_fulltext_search("Engineering")
+# → 返回: Alice(1.0), Charlie(1.0), # 精确匹配分数高
+
+# 3. RRF (Reciprocal Rank Fusion) 融合
+def rrf_fusion(vector_results, keyword_results, k=60):
+    scores = {}
+    for rank, item in enumerate(vector_results):
+        scores[item.id] = 0.7 / (k + rank)   # vector weight = 0.7
+    for rank, item in enumerate(keyword_results):
+        scores[item.id] += 0.3 / (k + rank)   # keyword weight = 0.3
+    return sorted(scores.items(), key=lambda x: -x[1])
+# → 最终排序: Alice(高分), Charlie(高分), Diana(低分，只在vector中有)
+```
+
+**什么时候混合检索比纯向量好？**
+- 搜错误码：`"Error-500"` → 关键词精确匹配比向量语义匹配靠谱
+- 搜人名：`"Alice"` → 关键词直接匹配比向量快
+- 搜概念：`"如何优化性能"` → 向量语义搜索更好（"加速"、"提升效率"都能匹配）
+</details>
+
+---
+
+### Q8: RAG 的常见坑和优化手段有哪些？
+
+<details>
+<summary>展开答案</summary>
+
+**坑 1：分块策略太粗糙**
+- 问题：固定 1000 字符切分，一句话被切成两半
+- 解决：递归分块（优先按段落、句子边界切），重叠窗口
+
+**坑 2：检索的 chunk 和问题不相关**
+- 问题：`"公司请假流程"` 检索到了 `"公司年假政策"`，用户要的是流程不是政策
+- 解决：混合检索 + Rerank（精排模型纠正初排错误）
+
+**坑 3：LLM 不按文档回答**
+- 问题：文档有答案但 LLM 用了自己的知识
+- 解决：Prompt 约束 `"If the context doesn't contain the answer, say 'I don't know'"`
+
+**坑 4：Embedding 模型不匹配语言**
+- 问题：英文 embedding 模型处理中文文档，检索效果差
+- 解决：中文用 `bge-large-zh-v1.5` 或 `text-embedding-3-large`
+
+**坑 5：文件格式处理不完整**
+- 问题：PDF 表格、PPTX 图片文字解析不出来
+- 解决：多 parser 策略（我们已支持 17 种格式），图片加 OCR
+
+**性能优化清单：**
+- [ ] pgvector IVFFlat/HNSW 索引
+- [ ] Redis 缓存高频问题
+- [ ] 文档预处理（去噪、去重）
+- [ ] 分块元数据过滤（先按标签筛选再向量检索）
+- [ ] LLM 流式输出（用户不用等完整回答）
+</details>
+
+---
+
+### Q9: 你们的 RAG 和生产级 RAG 有什么区别？
+
+<details>
+<summary>展开答案</summary>
+
+| 环节 | 我们 (Phase 1) | 生产级 | 差距 |
+|------|---------------|--------|------|
+| Embedding | TF-IDF (384-dim) | text-embedding-3-large / bge-large | 语义理解弱 |
+| 检索 | 纯向量余弦 | 混合检索 + Rerank | 召回精度低 |
+| 索引 | 无 | IVFFlat / HNSW | 大数据量慢 |
+| 分块 | 递归 + 重叠 | 语义分块 + 父子块 | 上下文完整性 |
+| 缓存 | 无 | Redis 语义缓存 | 重复计算 |
+| 监控 | 无 | Langfuse / 自建日志 | 质量无法追踪 |
+| 多模态 | 纯文本 | 图片/表格 OCR | 富文档支持弱 |
+
+我们 Phase 2 的目标就是填平这些差距。面试时这样讲加分：**"我知道差距在哪，也知道怎么解决，有明确的升级路线。"**
+</details>
