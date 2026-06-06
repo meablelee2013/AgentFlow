@@ -3,6 +3,7 @@ import { Sidebar } from "./components/common/Sidebar";
 import { Dashboard } from "./pages/Dashboard";
 import { ChatApp } from "./pages/ChatApp";
 import { KnowledgeBase } from "./pages/KnowledgeBase";
+import { WorkflowEditor } from "./pages/WorkflowEditor";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
 
 export default function App() {
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/chat" element={<ChatApp />} />
             <Route path="/knowledge" element={<KnowledgeBase />} />
+            <Route path="/workflow" element={<WorkflowEditor />} />
           </Routes>
         </main>
       </div>

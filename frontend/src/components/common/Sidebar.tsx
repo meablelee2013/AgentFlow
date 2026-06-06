@@ -7,11 +7,11 @@ interface Props {
   onToggle: () => void;
 }
 
-const navItems = [
+const navItems: { to: string; icon: typeof Hexagon; label: string }[] = [
   { to: "/", icon: Hexagon, label: "Dashboard" },
   { to: "/chat", icon: MessageSquare, label: "Chat" },
   { to: "/knowledge", icon: Database, label: "Knowledge Base" },
-  { to: "#", icon: Workflow, label: "Workflow", soon: true },
+  { to: "/workflow", icon: Workflow, label: "Workflow" },
 ];
 
 export function Sidebar({ collapsed, width, onToggle }: Props) {
@@ -39,7 +39,7 @@ export function Sidebar({ collapsed, width, onToggle }: Props) {
 
       {/* Navigation */}
       <nav className="flex-1 px-2 space-y-0.5">
-        {navItems.map(({ to, icon: Icon, label, soon }) => (
+        {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
@@ -47,9 +47,7 @@ export function Sidebar({ collapsed, width, onToggle }: Props) {
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium
                transition-all duration-150 ${
-                 to === "#"
-                   ? "opacity-30 cursor-not-allowed"
-                   : isActive
+                 isActive
                      ? "bg-white/10 text-white"
                      : "text-gray-400 hover:text-white hover:bg-white/5"
                } ${collapsed ? "justify-center px-0" : ""}`
@@ -57,14 +55,7 @@ export function Sidebar({ collapsed, width, onToggle }: Props) {
           >
             <Icon size={collapsed ? 18 : 16} strokeWidth={1.8} />
             {!collapsed && (
-              <>
-                <span className="flex-1">{label}</span>
-                {soon && (
-                  <span className="text-[9px] font-mono text-accent/70 bg-accent/10 px-1.5 py-0.5 rounded">
-                    SOON
-                  </span>
-                )}
-              </>
+              <span className="flex-1">{label}</span>
             )}
           </NavLink>
         ))}

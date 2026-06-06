@@ -1,0 +1,13 @@
+# SearXNG rate limiter — generous for local use
+# Disable bot detection for agent access
+
+[botdetection.ip_limit]
+# Allow up to 100 requests in 5 minutes
+link_token = false
+burst = 100
+interval = 300
+
+[botdetection.ip_lists]
+pass_ip = [
+  "0.0.0.0/0",  # Allow all IPs (internal service)
+]

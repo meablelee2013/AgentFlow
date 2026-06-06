@@ -1,31 +1,23 @@
-"""HTTP Request tool — make API calls from within agent workflows."""
-import httpx
-from app.core.tool.base import BaseTool, ToolResult
+"""HTTP Request tool — LangChain BaseTool, calls external APIs."""
+from pydantic import BaseModel, Field
+from langchain_core.tools import BaseTool
+
+
+class HTTPRequestInput(BaseModel):
+    url: str = Field(description="The URL to request (must start with http:// or https://)")
+    method: str = Field(default="GET", description="HTTP method: GET, POST, PUT, DELETE")
 
 
 class HTTPRequestTool(BaseTool):
-    name = "http_request"
-    description = "Make an HTTP request to an external API. Returns response body."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "url": {
-                "type": "string",
-                "description": "The URL to request",
-            },
-            "method": {
-                "type": "string",
-                "enum": ["GET", "POST", "PUT", "DELETE"],
-                "description": "HTTP method",
-            },
-        },
-        "required": ["url"],
-    }
+    name: str = "http_request"
+    description: str = "Make an HTTP request to an external API. Returns response body (truncated to 2000 chars)."
+    args_schema: type[BaseModel] = HTTPRequestInput
 
-    async def execute(self, url: str = "", method: str = "GET", **kwargs) -> ToolResult:
+    async def _arun(self, url: str = "", method: str = "GET") -> str:
         if not url.startswith(("http://", "https://")):
-            return ToolResult(success=False, output="", error="URL must start with http:// or https://")
+            return "Error: URL must start with http:// or https://"
 
+        import httpx
         try:
             async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                 if method == "GET":
@@ -37,14 +29,10 @@ class HTTPRequestTool(BaseTool):
                 elif method == "DELETE":
                     resp = await client.delete(url)
                 else:
-                    return ToolResult(success=False, output="", error=f"Unsupported method: {method}")
-
-                # Truncate long responses
-                body = resp.text[:2000]
-                return ToolResult(
-                    success=True,
-                    output=f"Status {resp.status_code}\n{body}",
-                    metadata={"status_code": resp.status_code},
-                )
+                    return f"Error: unsupported method '{method}'"
+                return f"Status {resp.status_code}\n{resp.text[:2000]}"
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return f"Error: {e}"
+
+    def _run(self, url: str = "", method: str = "GET") -> str:
+        raise NotImplementedError("Use _arun (async)")
