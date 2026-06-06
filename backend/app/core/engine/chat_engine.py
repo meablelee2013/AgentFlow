@@ -18,6 +18,7 @@ State design:
         └── each node's returned dict is concatenated with existing state, not overwritten
 """
 
+import os
 import uuid
 from typing import Any, AsyncGenerator, TypedDict, Annotated, List
 import operator
@@ -94,10 +95,9 @@ class ChatGraphEngine:
         Returns:
             dict with "messages" key — operator.add appends to existing list
         """
-        provider = LLMFactory.create("deepseek")
         llm = ChatOpenAI(
             base_url=settings.DEEPSEEK_BASE_URL,
-            api_key=settings.DEEPSEEK_API_KEY,
+            api_key=settings.DEEPSEEK_API_KEY or os.getenv("DEEPSEEK_API_KEY"),
             model="deepseek-chat",
             temperature=0.7,
         )
