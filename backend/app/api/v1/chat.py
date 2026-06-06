@@ -1,4 +1,5 @@
 """Chat API — conversation endpoints with PostgreSQL persistence"""
+import uuid
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -31,6 +32,31 @@ class HistoryResponse(BaseModel):
     messages: list[dict]
 
 
+class ConversationItem(BaseModel):
+    thread_id: str
+    title: str
+    updated_at: str | None = None
+
+
+@router.get("/conversations", response_model=list[ConversationItem])
+async def list_conversations(db: AsyncSession = Depends(get_db)):
+    """List all conversation threads."""
+    from sqlalchemy import select
+    from app.models.conversation import Conversation as ConvModel
+    result = await db.execute(
+        select(ConvModel).order_by(ConvModel.updated_at.desc()).limit(50)
+    )
+    convs = result.scalars().all()
+    return [
+        ConversationItem(
+            thread_id=c.thread_id,
+            title=c.title or "Untitled",
+            updated_at=c.updated_at.isoformat() if c.updated_at else None,
+        )
+        for c in convs
+    ]
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     """Send message — synchronous full response"""
@@ -54,15 +80,26 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest):
-    """Send message — SSE streaming response"""
+async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+    """Send message — SSE streaming response, persisted to PostgreSQL"""
     async def event_stream():
+        tid = req.thread_id or str(uuid.uuid4())
+        full_response = ""  # Accumulate for DB persistence
+        # Send thread_id as first event
+        yield f"data: [THREAD:{tid}]\n\n"
+
         async for token in engine.stream(
             [{"role": "user", "content": req.message}],
-            thread_id=req.thread_id,
+            thread_id=tid,
         ):
+            full_response += token
             yield f"data: {token}\n\n"
-        yield "data: [DONE]\n\n"
+        yield f"data: [DONE]\n\n"
+
+        # Persist after streaming completes
+        service = ChatService(db)
+        await service.save_message(tid, "user", req.message)
+        await service.save_message(tid, "assistant", full_response)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

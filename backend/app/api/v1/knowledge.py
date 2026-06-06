@@ -140,6 +140,34 @@ async def query_knowledge(
     )
 
 
+class CreateBaseRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+
+
+@router.post("/bases", response_model=KnowledgeBaseResponse, status_code=201)
+async def create_knowledge_base(
+    req: CreateBaseRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new knowledge base."""
+    kb = KnowledgeBase(name=req.name, description=req.description, status="ready")
+    db.add(kb)
+    await db.commit()
+    await db.refresh(kb)
+    return KnowledgeBaseResponse(id=str(kb.id), name=kb.name, status=kb.status)
+
+
+@router.delete("/bases/{kb_id}", status_code=204)
+async def delete_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a knowledge base and all its documents."""
+    kb = await db.get(KnowledgeBase, uuid.UUID(kb_id))
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    await db.delete(kb)
+    await db.commit()
+
+
 @router.get("/bases", response_model=list[KnowledgeBaseResponse])
 async def list_knowledge_bases(db: AsyncSession = Depends(get_db)):
     """List all knowledge bases."""
@@ -150,3 +178,45 @@ async def list_knowledge_bases(db: AsyncSession = Depends(get_db)):
         KnowledgeBaseResponse(id=str(kb.id), name=kb.name, status=kb.status)
         for kb in kbs
     ]
+
+
+class DocumentResponse(BaseModel):
+    id: str
+    filename: str
+    file_type: str
+    chunk_count: int
+    status: str
+    created_at: str
+
+
+@router.get("/bases/{kb_id}/documents", response_model=list[DocumentResponse])
+async def list_documents(kb_id: str, db: AsyncSession = Depends(get_db)):
+    """List all documents in a knowledge base."""
+    from sqlalchemy import select
+    result = await db.execute(
+        select(Document).where(Document.knowledge_base_id == uuid.UUID(kb_id))
+        .order_by(Document.created_at.desc())
+    )
+    docs = result.scalars().all()
+    return [
+        DocumentResponse(
+            id=str(d.id),
+            filename=d.filename,
+            file_type=d.file_type,
+            chunk_count=d.chunk_count,
+            status=d.status,
+            created_at=d.created_at.isoformat() if d.created_at else "",
+        )
+        for d in docs
+    ]
+
+
+@router.delete("/bases/{kb_id}/documents/{doc_id}", status_code=204)
+async def delete_document(kb_id: str, doc_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a document and all its chunks (vectors) from the knowledge base."""
+    doc = await db.get(Document, uuid.UUID(doc_id))
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    # Cascading delete removes associated document_chunks (vectors)
+    await db.delete(doc)
+    await db.commit()
