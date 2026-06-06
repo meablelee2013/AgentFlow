@@ -80,10 +80,11 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest):
-    """Send message — SSE streaming response with thread_id"""
+async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+    """Send message — SSE streaming response, persisted to PostgreSQL"""
     async def event_stream():
         tid = req.thread_id or str(uuid.uuid4())
+        full_response = ""  # Accumulate for DB persistence
         # Send thread_id as first event
         yield f"data: [THREAD:{tid}]\n\n"
 
@@ -91,8 +92,14 @@ async def chat_stream(req: ChatRequest):
             [{"role": "user", "content": req.message}],
             thread_id=tid,
         ):
+            full_response += token
             yield f"data: {token}\n\n"
         yield f"data: [DONE]\n\n"
+
+        # Persist after streaming completes
+        service = ChatService(db)
+        await service.save_message(tid, "user", req.message)
+        await service.save_message(tid, "assistant", full_response)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
