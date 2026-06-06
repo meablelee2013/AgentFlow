@@ -9,6 +9,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "celery>=5.6.3",
     "fastapi[standard]>=0.136.3",
+    "openai>=2.41.0",
     "pgvector>=0.4.2",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
