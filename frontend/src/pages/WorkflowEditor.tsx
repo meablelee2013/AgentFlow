@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
 import type { DragEvent } from "react";
 import {
   ReactFlow, Controls, Background, MiniMap, addEdge,
@@ -8,7 +8,7 @@ import {
 import type { Connection, Node, Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Save, Play, MessageSquare, Database, Wrench,
-         GitBranch, Repeat, UserCheck } from "lucide-react";
+         GitBranch, Repeat, UserCheck, Plus, ArrowLeft, Workflow } from "lucide-react";
 
 // ── Node type palette ──────────────────────────────────────
 
@@ -22,38 +22,23 @@ const NODE_TYPES_PALETTE = [
 ];
 
 const START_NODE: Node = {
-  id: "start", type: "startNode",
-  position: { x: 80, y: 80 },
-  data: { label: "START" },
+  id: "start", type: "startNode", position: { x: 80, y: 80 }, data: { label: "START" },
 };
-
 const END_NODE: Node = {
-  id: "end", type: "endNode",
-  position: { x: 80, y: 400 },
-  data: { label: "END" },
+  id: "end", type: "endNode", position: { x: 80, y: 400 }, data: { label: "END" },
 };
 
-const initialNodes: Node[] = [START_NODE, END_NODE];
-const initialEdges: Edge[] = [];
-
-// ── Custom Node Component ───────────────────────────────────
-
-import type { NodeProps } from "@xyflow/react";
+// ── Custom Node Components ────────────────────────────────
 
 function CustomNode({ data, type }: { data: Record<string, unknown>; type: string }) {
   const colors: Record<string, string> = {
-    chat: "border-blue-400 bg-blue-50",
-    rag: "border-violet-400 bg-violet-50",
-    tool: "border-amber-400 bg-amber-50",
-    condition: "border-red-400 bg-red-50",
-    loop: "border-cyan-400 bg-cyan-50",
-    hitl: "border-emerald-400 bg-emerald-50",
+    chat: "border-blue-400 bg-blue-50", rag: "border-violet-400 bg-violet-50",
+    tool: "border-amber-400 bg-amber-50", condition: "border-red-400 bg-red-50",
+    loop: "border-cyan-400 bg-cyan-50", hitl: "border-emerald-400 bg-emerald-50",
   };
   const labels: Record<string, string> = {
-    chat: "Chat", rag: "RAG", tool: "Tool",
-    condition: "Condition", loop: "Loop", hitl: "HITL",
+    chat: "Chat", rag: "RAG", tool: "Tool", condition: "Condition", loop: "Loop", hitl: "HITL",
   };
-
   return (
     <div className={`relative px-4 py-2.5 rounded-xl border-2 shadow-sm min-w-[120px] text-center ${colors[type] || "border-gray-200 bg-white"}`}>
       <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-ink/40 !border-2 !border-white" />
@@ -67,8 +52,7 @@ function CustomNode({ data, type }: { data: Record<string, unknown>; type: strin
 function StartNode() {
   return (
     <div className="relative px-5 py-2 bg-ink text-white rounded-full font-semibold text-xs">
-      <Handle type="source" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-ink !border-2 !border-white" />
-      START
+      <Handle type="source" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-ink !border-2 !border-white" /> START
     </div>
   );
 }
@@ -76,175 +60,129 @@ function StartNode() {
 function EndNode() {
   return (
     <div className="relative px-5 py-2 bg-warm text-ink border-2 border-ink rounded-full font-semibold text-xs">
-      <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-ink !border-2 !border-white" />
-      END
+      <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-ink !border-2 !border-white" /> END
     </div>
   );
 }
 
 const nodeTypes = {
-  startNode: StartNode,
-  endNode: EndNode,
-  chat: (props: NodeProps) => <CustomNode {...props} type="chat" />,
-  rag: (props: NodeProps) => <CustomNode {...props} type="rag" />,
-  tool: (props: NodeProps) => <CustomNode {...props} type="tool" />,
-  condition: (props: NodeProps) => <CustomNode {...props} type="condition" />,
-  loop: (props: NodeProps) => <CustomNode {...props} type="loop" />,
-  hitl: (props: NodeProps) => <CustomNode {...props} type="hitl" />,
+  startNode: StartNode, endNode: EndNode,
+  chat: (p: { data: Record<string, unknown> }) => <CustomNode {...p} type="chat" />,
+  rag: (p: { data: Record<string, unknown> }) => <CustomNode {...p} type="rag" />,
+  tool: (p: { data: Record<string, unknown> }) => <CustomNode {...p} type="tool" />,
+  condition: (p: { data: Record<string, unknown> }) => <CustomNode {...p} type="condition" />,
+  loop: (p: { data: Record<string, unknown> }) => <CustomNode {...p} type="loop" />,
+  hitl: (p: { data: Record<string, unknown> }) => <CustomNode {...p} type="hitl" />,
 };
 
-// ── Page Component ──────────────────────────────────────────
+// ── Workflow List Item ─────────────────────────────────────
 
-export function WorkflowEditor() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [wfName, setWfName] = useState("Untitled");
+interface WFItem { id: string; name: string; description: string; nodes: unknown[]; edges: unknown[] }
+
+function mapType(t: string | undefined) {
+  if (t === "startNode") return "start";
+  if (t === "endNode") return "end";
+  return t || "chat";
+}
+
+// ── Editor View ────────────────────────────────────────────
+
+function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
+  const initNodes: Node[] = wf?.nodes?.length
+    ? wf.nodes.map((n: any) => ({ ...n, type: n.type === "start" ? "startNode" : n.type === "end" ? "endNode" : n.type }))
+    : [START_NODE, END_NODE];
+  const initEdges: Edge[] = wf?.edges?.length
+    ? wf.edges.map((e: any) => ({ ...e, markerEnd: { type: MarkerType.ArrowClosed } }))
+    : [];
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges);
+  const [wfName, setWfName] = useState(wf?.name || "Untitled");
   const [saving, setSaving] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [execOutput, setExecOutput] = useState("");
-  const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [rfInstance, setRfInstance] = useState<any>(null);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds: Edge[]) => addEdge({ ...params, markerEnd: { type: MarkerType.ArrowClosed } }, eds)),
     [setEdges]
   );
 
-  // Drag from palette → drop on canvas
   const onDragOver = useCallback((e: DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }, []);
+  const onDrop = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData("application/reactflow");
+    if (!type || !wrapperRef.current || !rfInstance) return;
+    const bounds = wrapperRef.current.getBoundingClientRect();
+    const pos = rfInstance.screenToFlowPosition({ x: e.clientX - bounds.left, y: e.clientY - bounds.top });
+    setNodes((nds: Node[]) => [...nds, { id: `${type}-${Date.now()}`, type, position: pos, data: { label: type } }]);
+  }, [rfInstance, setNodes]);
 
-  const onDrop = useCallback(
-    (e: DragEvent) => {
-      e.preventDefault();
-      const type = e.dataTransfer.getData("application/reactflow");
-      if (!type || !reactFlowWrapper.current || !reactFlowInstance) return;
-
-      const bounds = reactFlowWrapper.current.getBoundingClientRect();
-      const position = reactFlowInstance.screenToFlowPosition({
-        x: e.clientX - bounds.left,
-        y: e.clientY - bounds.top,
-      });
-
-      const newNode: Node = {
-        id: `${type}-${Date.now()}`,
-        type,
-        position,
-        data: { label: type.charAt(0).toUpperCase() + type.slice(1) },
-        style: { fontSize: 12 },
-      };
-      setNodes((nds: Node[]) => [...nds, newNode]);
-    },
-    [reactFlowInstance, setNodes]
-  );
-
-  const mapType = (t: string | undefined) => {
-    if (t === "startNode") return "start";
-    if (t === "endNode") return "end";
-    return t || "chat";
-  };
+  const buildPayload = () => ({
+    name: wfName,
+    nodes: nodes.map((n: Node) => ({ id: n.id, type: mapType(n.type), position: n.position, data: n.data })),
+    edges: edges.map((e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle })),
+  });
 
   const handleSave = async () => {
     setSaving(true);
-    try {
-      await fetch("/api/v1/workflows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: wfName,
-          nodes: nodes.map((n: Node) => ({ id: n.id, type: mapType(n.type), position: n.position, data: n.data })),
-          edges: edges.map((e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle })),
-        }),
-      });
-    } catch (err) { /* */ }
+    await fetch("/api/v1/workflows", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildPayload()) });
     setSaving(false);
   };
 
   const handleExecute = async () => {
-    setExecuting(true);
-    setExecOutput("Executing...");
+    setExecuting(true); setExecOutput("Executing...");
     try {
-      // Save first
-      const saveRes = await fetch("/api/v1/workflows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: wfName,
-          nodes: nodes.map((n: Node) => ({ id: n.id, type: mapType(n.type), position: n.position, data: n.data })),
-          edges: edges.map((e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle })),
-        }),
-      });
-      const saved = await saveRes.json();
-      // Execute
-      const execRes = await fetch(`/api/v1/workflows/${saved.id}/execute`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "Hello! Test the workflow." }),
-      });
-      const result = await execRes.json();
+      const sr = await fetch("/api/v1/workflows", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildPayload()) });
+      const saved = await sr.json();
+      const er = await fetch(`/api/v1/workflows/${saved.id}/execute`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: "Hello!" }) });
+      const result = await er.json();
       setExecOutput(result.output || JSON.stringify(result));
-    } catch (err) {
-      setExecOutput(`Error: ${err}`);
-    }
+    } catch (err: any) { setExecOutput(`Error: ${err}`); }
     setExecuting(false);
   };
 
   return (
     <div className="flex h-full bg-warm">
-      {/* Palette Sidebar */}
+      {/* Palette */}
       <div className="w-48 border-r border-border bg-white p-3 flex flex-col gap-3 shrink-0">
-        <div>
-          <input
-            value={wfName}
-            onChange={e => setWfName(e.target.value)}
-            className="w-full px-2 py-1.5 text-sm font-semibold bg-transparent border-b border-border focus:outline-none focus:border-ink/30"
-          />
-        </div>
+        <button onClick={onBack} className="flex items-center gap-1 text-xs text-gray-400 hover:text-ink transition-colors">
+          <ArrowLeft size={12} /> Back
+        </button>
+        <input value={wfName} onChange={e => setWfName(e.target.value)}
+          className="w-full px-2 py-1.5 text-sm font-semibold bg-transparent border-b border-border focus:outline-none focus:border-ink/30" />
         <p className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">Nodes</p>
         {NODE_TYPES_PALETTE.map(({ type, label, icon: Icon, color }) => (
-          <div
-            key={type}
+          <div key={type}
             draggable
-            onDragStart={(e) => { e.dataTransfer.setData("application/reactflow", type); e.dataTransfer.effectAllowed = "move"; }}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border cursor-grab
-                       hover:shadow-sm hover:-translate-y-0.5 transition-all active:cursor-grabbing bg-white"
-          >
+            onDragStart={e => { e.dataTransfer.setData("application/reactflow", type); e.dataTransfer.effectAllowed = "move"; }}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border cursor-grab hover:shadow-sm hover:-translate-y-0.5 transition-all active:cursor-grabbing bg-white">
             <div className="w-6 h-6 rounded flex items-center justify-center" style={{ background: `${color}18` }}>
               <Icon size={12} style={{ color }} />
             </div>
             <span className="text-xs font-medium text-ink/70">{label}</span>
           </div>
         ))}
-
         <div className="mt-auto space-y-2 pt-4 border-t border-border">
           <button onClick={handleSave} disabled={saving}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg
-                       bg-ink text-white hover:bg-slate-hover disabled:opacity-50 transition-colors">
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-ink text-white hover:bg-slate-hover disabled:opacity-50 transition-colors">
             <Save size={12} /> {saving ? "Saving..." : "Save"}
           </button>
           <button onClick={handleExecute} disabled={executing}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg
-                       bg-accent text-black hover:bg-accent-hover disabled:opacity-50 transition-colors">
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-accent text-black hover:bg-accent-hover disabled:opacity-50 transition-colors">
             <Play size={12} /> {executing ? "Running..." : "Execute"}
           </button>
         </div>
       </div>
 
       {/* Canvas */}
-      <div className="flex-1" ref={reactFlowWrapper}>
+      <div className="flex-1" ref={wrapperRef}>
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onInit={setReactFlowInstance}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-          nodeTypes={nodeTypes}
-          fitView
-          deleteKeyCode={["Backspace", "Delete"]}
-          style={{ background: "#faf7f2" }}
-        >
+          nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+          onConnect={onConnect} onInit={setRfInstance} onDragOver={onDragOver} onDrop={onDrop}
+          nodeTypes={nodeTypes} fitView deleteKeyCode={["Backspace", "Delete"]}
+          style={{ background: "#faf7f2" }}>
           <Controls className="bg-white border-border rounded-lg shadow-sm" />
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e8e5e0" />
           <MiniMap style={{ background: "#faf7f2", border: "1px solid #e8e5e0" }} nodeColor="#1a1a1a" />
@@ -260,4 +198,73 @@ export function WorkflowEditor() {
       </div>
     </div>
   );
+}
+
+// ── List View ──────────────────────────────────────────────
+
+function ListView({ onCreate, onEdit }: { onCreate: () => void; onEdit: (wf: WFItem) => void }) {
+  const [workflows, setWorkflows] = useState<WFItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { setWorkflows(await fetch("/api/v1/workflows").then(r => r.json())); } catch { /* */ }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-bold text-ink tracking-tight">Workflows</h1>
+          <p className="text-sm text-gray-400 mt-1">Visual agent workflow builder</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        {/* Create New Card */}
+        <button onClick={onCreate}
+          className="group p-6 rounded-2xl border-2 border-dashed border-border hover:border-ink/30
+                     hover:bg-ink/[0.02] transition-all text-left min-h-[160px] flex flex-col items-center justify-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-ink/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+            <Plus size={24} className="text-ink/30" />
+          </div>
+          <p className="text-sm font-medium text-ink/50">Create New Workflow</p>
+        </button>
+
+        {/* Existing Workflow Cards */}
+        {workflows.map(wf => (
+          <button key={wf.id} onClick={() => onEdit(wf)}
+            className="p-6 rounded-2xl bg-white border border-border hover:border-ink/20 hover:shadow-sm
+                       transition-all text-left group min-h-[160px] flex flex-col">
+            <div className="w-10 h-10 rounded-xl bg-ink/5 flex items-center justify-center mb-3">
+              <Workflow size={20} className="text-ink/50" />
+            </div>
+            <h3 className="text-sm font-semibold text-ink truncate">{wf.name}</h3>
+            <p className="text-xs text-gray-400 mt-1">
+              {String(wf.nodes?.length || 0)} nodes · {String(wf.edges?.length || 0)} edges
+            </p>
+            <p className="text-[10px] text-gray-300 mt-auto pt-3 font-mono">{wf.id.slice(0, 8)}...</p>
+          </button>
+        ))}
+
+        {!loading && workflows.length === 0 && (
+          <div className="col-span-2 flex items-center text-sm text-gray-400 pl-2">
+            No workflows yet — click "Create New" to build your first one.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────
+
+export function WorkflowEditor() {
+  const [view, setView] = useState<"list" | "editor">("list");
+  const [editingWf, setEditingWf] = useState<WFItem | null>(null);
+
+  return view === "list"
+    ? <ListView onCreate={() => { setEditingWf(null); setView("editor"); }} onEdit={wf => { setEditingWf(wf); setView("editor"); }} />
+    : <EditorView wf={editingWf} onBack={() => setView("list")} />;
 }
