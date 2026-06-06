@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
 
 @theme {
   --font-sans: "DM Sans", system-ui, sans-serif;
@@ -43,6 +42,37 @@ body {
   animation: blink 1s step-end infinite;
   color: var(--color-accent);
 }
+
+/* Markdown rendered content */
+.md-content h1 { font-size: 1.3em; font-weight: 700; margin: 0.8em 0 0.4em; line-height: 1.3; }
+.md-content h2 { font-size: 1.15em; font-weight: 700; margin: 0.7em 0 0.3em; line-height: 1.3; }
+.md-content h3 { font-size: 1.05em; font-weight: 600; margin: 0.6em 0 0.2em; line-height: 1.3; }
+.md-content p { margin: 0.5em 0; line-height: 1.6; }
+.md-content ul, .md-content ol { padding-left: 1.6em; margin: 0.5em 0; }
+.md-content li { margin: 0.2em 0; line-height: 1.5; }
+.md-content li > p { margin: 0; }
+.md-content code {
+  background: #f0ede8; color: #d6336c; padding: 2px 6px; border-radius: 4px;
+  font-size: 0.88em; font-family: var(--font-mono); word-break: break-word;
+}
+.md-content pre {
+  background: #1a1a1a; color: #e8e5e0; padding: 14px 18px; border-radius: 10px;
+  overflow-x: auto; margin: 0.6em 0; font-size: 0.84em; line-height: 1.55;
+}
+.md-content pre code { background: none; color: inherit; padding: 0; font-size: inherit; border-radius: 0; }
+.md-content blockquote {
+  border-left: 3px solid #d4d0c8; padding-left: 14px; margin: 0.5em 0;
+  color: #888; font-style: italic;
+}
+.md-content blockquote p { margin: 0.2em 0; }
+.md-content a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+.md-content a:hover { color: #1d4ed8; }
+.md-content strong { font-weight: 600; }
+.md-content table { width: 100%; border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; }
+.md-content th, .md-content td { border: 1px solid #d4d0c8; padding: 8px 12px; text-align: left; }
+.md-content th { background: #f5f2ed; font-weight: 600; }
+.md-content hr { border: none; border-top: 1px solid #d4d0c8; margin: 1em 0; }
+.md-content img { max-width: 100%; border-radius: 8px; margin: 0.5em 0; }
 
 /* Gradient text */
 .gradient-text {

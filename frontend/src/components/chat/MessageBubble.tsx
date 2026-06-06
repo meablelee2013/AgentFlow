@@ -85,7 +85,7 @@ export function MessageBubble({ id, role, content }: Props) {
             {isUser ? (
               <p className="whitespace-pre-wrap">{content}</p>
             ) : (
-              <div className="prose prose-sm prose-stone max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+              <div className="md-content max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {content}
                 </ReactMarkdown>

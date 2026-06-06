@@ -69,7 +69,7 @@ export function ChatWindow() {
                 <span className="text-[10px] font-mono text-ink/50 font-semibold">AI</span>
               </div>
               <div className="max-w-[72%]">
-                <div className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm prose prose-sm prose-stone max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                <div className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm md-content max-w-none">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {streaming}
                   </ReactMarkdown>
