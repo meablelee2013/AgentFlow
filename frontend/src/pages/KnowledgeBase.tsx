@@ -23,10 +23,11 @@ export function KnowledgeBase() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
-  // Upload state
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Staging area for files before upload
+  interface StagedFile { id: string; file: File; addedAt: string; }
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [urlValue, setUrlValue] = useState("");
-  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "processing">("idle");
+  const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -36,6 +37,44 @@ export function KnowledgeBase() {
     ".json", ".epub", ".html", ".htm",
   ];
   const ACCEPT = SUPPORTED_FORMATS.join(",");
+
+  const addFiles = (files: FileList | File[]) => {
+    const incoming = Array.from(files).filter(f =>
+      SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext))
+    );
+    setStagedFiles(prev => [
+      ...prev,
+      ...incoming.map(f => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file: f,
+        addedAt: new Date().toLocaleTimeString(),
+      })),
+    ]);
+  };
+
+  const removeStaged = (id: string) => {
+    setStagedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const handleUploadAll = async () => {
+    if (!selectedKb || stagedFiles.length === 0) return;
+    setUploading(true);
+    for (const sf of stagedFiles) {
+      try {
+        const form = new FormData();
+        form.append("file", sf.file);
+        form.append("knowledge_base_id", selectedKb.id);
+        await fetch("/api/v1/knowledge/upload", { method: "POST", body: form });
+        // Remove from staging one by one as they complete
+        setStagedFiles(prev => prev.filter(f => f.id !== sf.id));
+      } catch (err) {
+        alert(`${sf.file.name}: ${err instanceof Error ? err.message : "Failed"}`);
+      }
+    }
+    setUploading(false);
+    await loadDocs(selectedKb.id);
+    await loadBases();
+  };
 
   const loadBases = async () => {
     try { setBases(await api.listBases()); } catch { /* */ }
@@ -85,41 +124,18 @@ export function KnowledgeBase() {
     await loadDocs(kb.id);
   };
 
-  const handleUpload = async () => {
-    if (!selectedFile || !selectedKb) return;
-    setUploadState("uploading");
-    try {
-      // Upload
-      const form = new FormData();
-      form.append("file", selectedFile);
-      if (selectedKb) form.append("knowledge_base_id", selectedKb.id);
-      setUploadState("processing");
-      await fetch("/api/v1/knowledge/upload", { method: "POST", body: form });
-      // Refresh
-      await loadDocs(selectedKb.id);
-      await loadBases();
-      setSelectedFile(null);
-      setUploadState("idle");
-      if (fileRef.current) fileRef.current.value = "";
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Upload failed");
-      setUploadState("idle");
-    }
-  };
-
   const handleUrlIngest = async () => {
     if (!urlValue.trim() || !selectedKb) return;
-    setUploadState("processing");
+    setUploading(true);
     try {
       await api.ingestUrl(urlValue.trim(), selectedKb.id);
       setUrlValue("");
       await loadDocs(selectedKb.id);
       await loadBases();
-      setUploadState("idle");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Ingest failed");
-      setUploadState("idle");
     }
+    setUploading(false);
   };
 
   const statusIcon = (s: string) => {
@@ -214,112 +230,93 @@ export function KnowledgeBase() {
         </button>
       </div>
 
-      {/* Upload Section */}
+      {/* === STAGING AREA (中转站) === */}
       <div
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
-        onDrop={e => {
-          e.preventDefault();
-          setDragOver(false);
-          const file = e.dataTransfer.files?.[0];
-          if (file) setSelectedFile(file);
-        }}
-        className={`rounded-2xl border-2 border-dashed p-6 mb-6 transition-all cursor-pointer ${
+        onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+        onClick={() => fileRef.current?.click()}
+        className={`rounded-2xl border-2 border-dashed p-5 mb-4 transition-all cursor-pointer ${
           dragOver
             ? "border-accent bg-accent/[0.04] scale-[1.01]"
-            : uploadState !== "idle"
-              ? "border-accent/50 bg-accent/[0.02]"
-              : "border-border hover:border-ink/20 hover:bg-ink/[0.01]"
+            : "border-border hover:border-ink/20 hover:bg-ink/[0.01]"
         }`}
-        onClick={() => fileRef.current?.click()}
       >
-        <input ref={fileRef} type="file" onChange={e => setSelectedFile(e.target.files?.[0] || null)}
+        <input ref={fileRef} type="file" multiple onChange={e => e.target.files && addFiles(e.target.files)}
           className="hidden" accept={ACCEPT} />
-
-        {selectedFile ? (
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-xl bg-ink/5 flex items-center justify-center">
-              <FileText size={24} className="text-ink/50" />
-            </div>
-            <p className="text-sm font-medium text-ink">{selectedFile.name}</p>
-            <p className="text-xs text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB · Click to change</p>
-            <button
-              onClick={e => { e.stopPropagation(); setSelectedFile(null); if (fileRef.current) fileRef.current.value = ""; }}
-              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
-            >
-              Remove
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-ink/5 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Upload size={24} className="text-ink/30" />
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium text-ink">
-                {dragOver ? "Drop file here" : "Drag & drop file or click to browse"}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">PDF, DOCX, PPTX, CSV, JSON, EPUB, HTML, MD, TXT</p>
-            </div>
-          </div>
-        )}
+        <div className="flex flex-col items-center gap-2">
+          <Upload size={20} className="text-ink/20" />
+          <p className="text-sm text-gray-500">
+            {dragOver ? "Drop files here" : "Drag & drop files or click to browse"}
+          </p>
+          <p className="text-xs text-gray-300">PDF, DOCX, PPTX, CSV, JSON, EPUB, HTML, MD, TXT</p>
+        </div>
       </div>
 
-      {/* URL + Upload row */}
-      <div className="flex gap-3 mb-6">
-        <div className="flex-1">
-          <input type="url" value={urlValue}
-            onChange={e => setUrlValue(e.target.value)}
-            placeholder="Or paste a URL to ingest..."
-            className="w-full px-3 py-2 text-xs rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-ink/10"
-            onKeyDown={e => e.key === "Enter" && urlValue.trim() && handleUrlIngest()}
-          />
+      {/* Staged files list */}
+      {stagedFiles.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Staged ({stagedFiles.length})
+            </span>
+            <div className="flex gap-2">
+              <button onClick={() => setStagedFiles([])}
+                className="text-[10px] text-gray-400 hover:text-red-500 font-mono transition-colors">
+                Clear all
+              </button>
+              <button onClick={handleUploadAll}
+                disabled={uploading}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-lg
+                           bg-ink text-white hover:bg-slate-hover disabled:opacity-30 transition-colors">
+                <Upload size={12} />
+                {uploading ? "Uploading..." : `Upload ${stagedFiles.length} file${stagedFiles.length > 1 ? "s" : ""}`}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            {stagedFiles.map(sf => (
+              <div key={sf.id}
+                className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white border border-border text-sm">
+                <FileText size={14} className="text-ink/30 shrink-0" />
+                <span className="flex-1 truncate font-medium text-ink/80">{sf.file.name}</span>
+                <span className="text-[10px] text-gray-400 font-mono shrink-0">
+                  {(sf.file.size / 1024).toFixed(1)} KB
+                </span>
+                <span className="text-[10px] text-gray-300 font-mono shrink-0">{sf.addedAt}</span>
+                <button onClick={() => removeStaged(sf.id)}
+                  className="text-gray-300 hover:text-red-400 transition-colors shrink-0">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {uploading && (
+            <div className="mt-2 h-1 bg-border rounded-full overflow-hidden">
+              <div className="h-full bg-accent rounded-full animate-pulse transition-all"
+                style={{ width: `${((stagedFiles.length) / Math.max(stagedFiles.length, 1)) * 100}%` }} />
+            </div>
+          )}
         </div>
-        <button onClick={selectedFile ? handleUpload : () => {}}
-          disabled={!selectedFile || uploadState !== "idle"}
-          className="flex items-center gap-1.5 px-5 py-2 text-sm font-medium rounded-xl
-                     bg-ink text-white hover:bg-slate-hover disabled:opacity-30 transition-colors shrink-0">
-          <Upload size={14} />
-          {uploadState === "idle" ? "Upload" : uploadState === "uploading" ? "Uploading..." : "Processing..."}
-        </button>
+      )}
+
+      {/* URL ingest */}
+      <div className="flex gap-2 mb-4">
+        <input type="url" value={urlValue}
+          onChange={e => setUrlValue(e.target.value)}
+          placeholder="Or paste a URL to ingest..."
+          className="flex-1 px-3 py-2 text-xs rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-ink/10"
+          onKeyDown={e => e.key === "Enter" && urlValue.trim() && handleUrlIngest()}
+        />
         {urlValue.trim() && (
           <button onClick={handleUrlIngest}
-            disabled={uploadState !== "idle"}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl
+            disabled={uploading}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl
                        bg-violet-500 text-white hover:bg-violet-600 disabled:opacity-30 transition-colors shrink-0">
-            <Link size={14} /> Ingest
+            <Link size={12} /> Ingest URL
           </button>
         )}
       </div>
-
-      {/* Supported formats hint */}
-      <div className="flex flex-wrap gap-1.5 mb-6">
-        <span className="text-[10px] text-gray-400 font-mono mr-1 mt-0.5">Formats:</span>
-        {SUPPORTED_FORMATS.map(f => (
-          <span key={f} className="text-[10px] px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 font-mono">
-            {f}
-          </span>
-        ))}
-      </div>
-
-      {/* Progress indicator */}
-      {uploadState !== "idle" && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-1">
-            <Loader2 size={14} className={uploadState === "uploading" ? "text-blue-500 animate-spin" : "text-accent animate-spin"} />
-            <span className="text-xs font-medium text-ink/70">
-              {uploadState === "uploading" ? "Uploading file..." : "Processing — chunking, embedding, indexing..."}
-            </span>
-          </div>
-          <div className="h-1 bg-border rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-500 ${
-              uploadState === "uploading"
-                ? "w-1/3 bg-blue-400 animate-pulse"
-                : "w-2/3 bg-accent animate-pulse"
-            }`} />
-          </div>
-        </div>
-      )}
 
       {/* Documents List */}
       <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
