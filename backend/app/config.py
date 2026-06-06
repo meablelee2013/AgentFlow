@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # --- Database ---
     DATABASE_URL: str = (
-        "postgresql+asyncpg://agentflow:agentflow@localhost:5432/agentflow"
+        "postgresql+asyncpg://agentflow:agentflow@localhost:5434/agentflow"
     )
 
     # --- Redis ---
