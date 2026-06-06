@@ -26,10 +26,17 @@ export function ChatApp() {
 
   useEffect(() => { loadConvs(); }, []);
   // Refresh list after each message
-  useEffect(() => { if (threadId) setActiveTid(threadId); }, [threadId]);
+  // Sync active thread ID and refresh list when a new conversation is created
+  useEffect(() => {
+    if (threadId) {
+      setActiveTid(threadId);
+      loadConvs(); // Immediately refresh the conversation list
+    }
+  }, [threadId]);
+
   // Periodically refresh conversation list
   useEffect(() => {
-    const i = setInterval(loadConvs, 3000);
+    const i = setInterval(loadConvs, 5000);
     return () => clearInterval(i);
   }, []);
 
