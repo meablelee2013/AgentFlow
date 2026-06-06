@@ -1,4 +1,4 @@
-"""对话模型 — Conversation 与 Message"""
+"""Conversation models — Conversation and Message"""
 import uuid
 from datetime import datetime
 from sqlalchemy import String, DateTime, ForeignKey, Text, func
@@ -8,7 +8,7 @@ from app.models.base import Base
 
 
 class Conversation(Base):
-    """对话会话 — 一个 conversation 对应一个 LangGraph thread_id"""
+    """Conversation session — one conversation maps to one LangGraph thread_id"""
 
     __tablename__ = "conversations"
 
@@ -32,7 +32,7 @@ class Conversation(Base):
 
 
 class Message(Base):
-    """对话消息"""
+    """Chat message"""
 
     __tablename__ = "messages"
 

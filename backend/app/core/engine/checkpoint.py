@@ -1,9 +1,9 @@
 """
-Checkpointer 管理器
+Checkpointer manager
 
-管理 LangGraph 的检查点后端，支持热切换 MemorySaver ↔ SqliteSaver。
+Manages LangGraph checkpoint backends, supports hot-swap MemorySaver ↔ SqliteSaver.
 
-Checkpointer 继承链:
+Checkpointer inheritance chain:
 ```mermaid
 classDiagram
     class BaseCheckpointSaver~V~ {
@@ -32,13 +32,13 @@ classDiagram
     BaseCheckpointSaver <|-- SqliteSaver
     BaseCheckpointSaver <|-- PostgresSaver
 
-    note for MemorySaver "= InMemorySaver (alias)\nlanggraph 内置"
+    note for MemorySaver "= InMemorySaver (alias)\nlanggraph built-in"
     note for SqliteSaver "pip install langgraph-checkpoint-sqlite"
     note for PostgresSaver "pip install langgraph-checkpoint-postgres"
 ```
 
-存储结构 (MemorySaver):
-    三层嵌套 defaultdict
+Storage structure (MemorySaver):
+    Triple-nested defaultdict
     storage[thread_id][checkpoint_ns][checkpoint_id] = (
         serialized_checkpoint,    # (type, bytes)
         serialized_metadata,      # (type, bytes)
@@ -56,13 +56,13 @@ from langgraph.checkpoint.memory import MemorySaver
 
 
 class CheckpointerManager:
-    """Checkpointer 管理器
+    """Checkpointer manager
 
-    Phase 1: 使用 MemorySaver（开发）
-    Phase 2: 切换到 SqliteSaver（生产准备）
-    Phase 3: 切换到 PostgresSaver（集群部署）
+    Phase 1: use MemorySaver (development)
+    Phase 2: switch to SqliteSaver (production-ready)
+    Phase 3: switch to PostgresSaver (cluster deployment)
 
-    用法:
+    Usage:
         manager = CheckpointerManager()
         checkpointer = manager.get()
         app = graph.compile(checkpointer=checkpointer)
@@ -72,10 +72,10 @@ class CheckpointerManager:
 
     @classmethod
     def get(cls) -> MemorySaver:
-        """获取 Checkpointer 实例（单例）
+        """Get Checkpointer instance (singleton)
 
         Returns:
-            MemorySaver 实例
+            MemorySaver instance
         """
         if cls._instance is None:
             cls._instance = MemorySaver()
@@ -83,5 +83,5 @@ class CheckpointerManager:
 
     @classmethod
     def reset(cls) -> None:
-        """重置 Checkpointer（测试用）"""
+        """Reset Checkpointer (for testing)"""
         cls._instance = None

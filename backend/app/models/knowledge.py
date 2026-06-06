@@ -1,4 +1,4 @@
-"""知识库模型 — KnowledgeBase, Document, DocumentChunk"""
+"""Knowledge base models — KnowledgeBase, Document, DocumentChunk"""
 import uuid
 from datetime import datetime
 from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, func
@@ -9,7 +9,7 @@ from app.models.base import Base
 
 
 class KnowledgeBase(Base):
-    """知识库"""
+    """Knowledge base"""
 
     __tablename__ = "knowledge_bases"
 
@@ -25,7 +25,7 @@ class KnowledgeBase(Base):
 
 
 class Document(Base):
-    """文档"""
+    """Document"""
 
     __tablename__ = "documents"
 
@@ -47,7 +47,7 @@ class Document(Base):
 
 
 class DocumentChunk(Base):
-    """文档分块 — 存储 pgvector embedding"""
+    """Document chunk — stores pgvector embedding"""
 
     __tablename__ = "document_chunks"
 

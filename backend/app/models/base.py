@@ -1,4 +1,4 @@
-"""SQLAlchemy 声明式基类 — 所有 ORM 模型继承此类"""
+"""SQLAlchemy declarative base class — all ORM models inherit from this"""
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs
 

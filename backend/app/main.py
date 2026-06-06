@@ -1,6 +1,6 @@
-"""AgentFlow API — FastAPI 应用入口
+"""AgentFlow API — FastAPI application entrypoint
 
-请求生命周期:
+Request lifecycle:
     Request → CORS Middleware → Router → Response
 """
 from contextlib import asynccontextmanager
@@ -16,7 +16,7 @@ logger = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用启动/关闭时的资源管理"""
+    """Resource management on startup/shutdown"""
     logger.info("AgentFlow starting", version=settings.APP_VERSION)
     yield
     logger.info("AgentFlow shutting down")
@@ -43,5 +43,5 @@ app.include_router(chat_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health_check():
-    """健康检查端点 — 可用于 K8s liveness probe"""
+    """Health check endpoint — usable as K8s liveness probe"""
     return {"status": "ok", "version": settings.APP_VERSION}

@@ -1,7 +1,7 @@
 """
-DeepSeek Provider — 适配 DeepSeek Chat API (OpenAI 兼容协议)
+DeepSeek Provider — adapter for DeepSeek Chat API (OpenAI-compatible protocol)
 
-调用时序:
+Call sequence:
 ```mermaid
 sequenceDiagram
     participant Caller
@@ -16,14 +16,14 @@ sequenceDiagram
     AsyncOpenAI-->>DeepSeekProvider: choices[0].message.content
     DeepSeekProvider-->>Caller: "response text"
 
-    Note over Caller,DeepSeekAPI: stream 模式: chunk.choices[0].delta.content 逐 token 返回
+    Note over Caller,DeepSeekAPI: stream mode: chunk.choices[0].delta.content yields per token
 ```
 
-DeepSeek 是 AgentFlow 的主力模型:
-- 成本: ¥5-10/千次对话 (性价比最高)
-- 中文: ⭐⭐⭐⭐⭐
-- 速度: ⭐⭐⭐⭐
-- 协议: OpenAI 兼容，可直接用 openai SDK
+DeepSeek is AgentFlow's primary model:
+- Cost: ¥5-10/1K conversations (best value)
+- Chinese: excellent
+- Speed: fast
+- Protocol: OpenAI-compatible, use openai SDK directly
 """
 
 import os
@@ -35,8 +35,8 @@ from app.core.llm.providers.base import BaseLLMProvider
 class DeepSeekProvider(BaseLLMProvider):
     """DeepSeek Chat API Provider
 
-    使用 OpenAI 兼容协议调用 DeepSeek。
-    模型列表: deepseek-chat (通用), deepseek-reasoner (推理)
+    Calls DeepSeek via OpenAI-compatible protocol.
+    Models: deepseek-chat (general), deepseek-reasoner (reasoning)
     """
 
     model_name = "deepseek-chat"
@@ -51,7 +51,7 @@ class DeepSeekProvider(BaseLLMProvider):
         )
 
     async def invoke(self, messages: list[dict]) -> str:
-        """同步调用 DeepSeek，返回完整回答"""
+        """Synchronous call to DeepSeek, returns complete response"""
         response = await self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
@@ -60,9 +60,9 @@ class DeepSeekProvider(BaseLLMProvider):
         return response.choices[0].message.content or ""
 
     async def stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:
-        """流式调用 DeepSeek，逐 token yield
+        """Stream call to DeepSeek, yields tokens one by one
 
-        用法:
+        Usage:
             async for token in provider.stream(messages):
                 yield f"data: {token}\n\n"  # SSE format
         """
@@ -78,9 +78,9 @@ class DeepSeekProvider(BaseLLMProvider):
                 yield delta.content
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """文本向量化 — Phase 1 使用 DeepSeek embedding
+        """Text vectorization — Phase 1 uses DeepSeek embedding
 
-        生产环境建议用专门的 embedding 模型 (如 text-embedding-3)
+        Production should use dedicated embedding models (e.g. text-embedding-3)
         """
         embeddings = []
         for text in texts:

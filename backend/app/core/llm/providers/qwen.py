@@ -1,4 +1,4 @@
-"""通义千问 Provider — 阿里云 DashScope API (OpenAI 兼容)"""
+"""Qwen (Tongyi Qianwen) Provider — Alibaba Cloud DashScope API (OpenAI-compatible)"""
 import os
 from typing import AsyncGenerator
 from openai import AsyncOpenAI
@@ -6,10 +6,10 @@ from app.core.llm.providers.base import BaseLLMProvider
 
 
 class QwenProvider(BaseLLMProvider):
-    """通义千问 (Qwen) Provider
+    """Qwen Provider
 
-    通过阿里云 DashScope 的 OpenAI 兼容接口调用。
-    Model: qwen-turbo (性价比) / qwen-plus (均衡) / qwen-max (最强)
+    Calls via Alibaba Cloud DashScope's OpenAI-compatible endpoint.
+    Models: qwen-turbo (value) / qwen-plus (balanced) / qwen-max (powerful)
     """
 
     model_name = "qwen-plus"
