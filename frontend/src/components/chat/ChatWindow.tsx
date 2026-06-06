@@ -1,6 +1,4 @@
 import { useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useChatStore } from "../../stores/chat";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
@@ -69,10 +67,8 @@ export function ChatWindow() {
                 <span className="text-[10px] font-mono text-ink/50 font-semibold">AI</span>
               </div>
               <div className="max-w-[72%]">
-                <div className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm md-content max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {streaming}
-                  </ReactMarkdown>
+                <div className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm max-w-none">
+                  <span className="whitespace-pre-wrap">{streaming}</span>
                   <span className="inline-block w-[2px] h-[1em] bg-accent ml-0.5 align-text-bottom animate-pulse" />
                 </div>
               </div>
