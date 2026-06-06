@@ -36,10 +36,10 @@ class Settings(BaseSettings):
     QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
     # --- Embedding ---
-    EMBEDDING_MODEL: str = "deepseek-chat"
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
 
     # --- Vector Storage ---
-    VECTOR_DIMENSION: int = 1536
+    VECTOR_DIMENSION: int = 384  # all-MiniLM-L6-v2 default
 
 
 settings = Settings()

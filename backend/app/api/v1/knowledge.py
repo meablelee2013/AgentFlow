@@ -3,6 +3,7 @@ import uuid
 import shutil
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,8 +100,19 @@ async def ingest_url(
     try:
         kb = await pipeline.ingest_url(req.url, knowledge_base_id=kb_id)
     except Exception as e:
-        logger.error("URL ingestion failed", url=req.url, error=str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        err_type = type(e).__name__
+        err_msg = str(e)
+
+        # Provide user-friendly error for HTTP errors
+        if hasattr(e, "response") and hasattr(e.response, "status_code"):
+            status = e.response.status_code
+            err_msg = (
+                f"URL returned HTTP {status}. "
+                f"The site may block crawlers — try a URL that allows bot access."
+            )
+
+        logger.error("URL ingestion failed", url=req.url, error=f"{err_type}: {err_msg}")
+        raise HTTPException(status_code=400, detail=err_msg)
 
     return KnowledgeBaseResponse(
         id=str(kb.id),
