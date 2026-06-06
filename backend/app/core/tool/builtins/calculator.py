@@ -1,24 +1,23 @@
-"""Calculator tool — safe math expression evaluation."""
+"""Calculator tool — inherits LangChain's BaseTool for native function calling."""
 import math
-from app.core.tool.base import BaseTool, ToolResult
+from typing import Any
+from pydantic import BaseModel, Field
+from langchain_core.tools import BaseTool
+
+
+class CalculatorInput(BaseModel):
+    """Input schema for calculator — auto-generated as JSON Schema for LLM."""
+    expression: str = Field(
+        description="Math expression to evaluate, e.g. '2 + 3 * 4' or 'sqrt(144)'"
+    )
 
 
 class CalculatorTool(BaseTool):
-    name = "calculator"
-    description = "Evaluate a mathematical expression. Supports +, -, *, /, **, sqrt, sin, cos, log, etc."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "expression": {
-                "type": "string",
-                "description": "Math expression to evaluate, e.g. '2 + 3 * 4' or 'sqrt(16)'",
-            }
-        },
-        "required": ["expression"],
-    }
+    name: str = "calculator"
+    description: str = "Evaluate a mathematical expression. Supports +, -, *, /, **, sqrt, sin, cos, log, etc."
+    args_schema: type[BaseModel] = CalculatorInput
 
-    # Safe builtins for eval
-    _SAFE_NAMES = {
+    _SAFE_NAMES: dict[str, Any] = {
         "abs": abs, "round": round, "min": min, "max": max,
         "sqrt": math.sqrt, "sin": math.sin, "cos": math.cos,
         "tan": math.tan, "log": math.log, "log10": math.log10,
@@ -26,10 +25,12 @@ class CalculatorTool(BaseTool):
         "floor": math.floor, "int": int, "float": float,
     }
 
-    async def execute(self, expression: str = "", **kwargs) -> ToolResult:
+    async def _arun(self, expression: str = "") -> str:
         try:
-            # Evaluate with restricted builtins
             result = eval(expression, {"__builtins__": {}}, self._SAFE_NAMES)
-            return ToolResult(success=True, output=str(result))
+            return str(result)
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return f"Error: {e}"
+
+    def _run(self, expression: str = "") -> str:
+        raise NotImplementedError("Use _arun (async)")

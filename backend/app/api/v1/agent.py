@@ -76,9 +76,7 @@ async def agent_stream(req: AgentRequest, db: AsyncSession = Depends(get_db)):
 @router.get("/tools", response_model=list[ToolInfo])
 async def list_tools():
     """List all available agent tools."""
-    registry = agent_engine.tool_registry
     return [
         ToolInfo(name=t.name, description=t.description)
-        for t_name in registry.list_tools()
-        if (t := registry.get(t_name))
+        for t in agent_engine.tools
     ]

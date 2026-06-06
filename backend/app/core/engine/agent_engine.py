@@ -42,8 +42,7 @@ from langchain_core.runnables import RunnableConfig
 
 from app.config import settings
 from app.core.engine.checkpoint import CheckpointerManager
-from app.core.tool.registry import ToolRegistry
-from app.core.tool.base import ToolResult
+from langchain_core.tools import BaseTool as LCTool
 
 
 class AgentState(TypedDict):
@@ -63,24 +62,22 @@ class AgentGraphEngine:
 
     MAX_TOOL_ITERATIONS = 5
 
-    def __init__(self, tool_registry: ToolRegistry | None = None):
-        self.tool_registry = tool_registry or self._default_registry()
+    def __init__(self, tools: list[LCTool] | None = None):
+        self.tools = tools or self._default_tools()
+        # Build name → tool lookup for execution
+        self._tool_map = {t.name: t for t in self.tools}
         self._graph = self._build_graph()
         self._checkpointer = CheckpointerManager.get()
         self._app = self._graph.compile(checkpointer=self._checkpointer)
 
     @staticmethod
-    def _default_registry() -> ToolRegistry:
-        """Create registry with default built-in tools."""
+    def _default_tools() -> list[LCTool]:
+        """Create default built-in tools (all LangChain BaseTools)."""
         from app.core.tool.builtins.calculator import CalculatorTool
         from app.core.tool.builtins.datetime_tool import DateTimeTool
         from app.core.tool.builtins.web_search import WebSearchTool
         from app.core.tool.builtins.http_request import HTTPRequestTool
-
-        registry = ToolRegistry()
-        for tool in [CalculatorTool(), DateTimeTool(), WebSearchTool(), HTTPRequestTool()]:
-            registry.register(tool)
-        return registry
+        return [CalculatorTool(), DateTimeTool(), WebSearchTool(), HTTPRequestTool()]
 
     def _build_graph(self) -> StateGraph:
         workflow = StateGraph(AgentState)
@@ -117,9 +114,8 @@ class AgentGraphEngine:
             temperature=0.7,
         )
 
-        # Bind tool schemas for function calling
-        schemas = self.tool_registry.get_openai_schemas()
-        llm_with_tools = llm.bind_tools(schemas)
+        # Bind LangChain tools directly — native function calling
+        llm_with_tools = llm.bind_tools(self.tools)
 
         # Insert system prompt if first message
         messages = list(state["messages"])
@@ -134,16 +130,23 @@ class AgentGraphEngine:
         return {"messages": [response]}
 
     async def _tools_node(self, state: AgentState) -> dict:
-        """Execute tool calls and return results as ToolMessages."""
+        """Execute tool calls via LangChain BaseTool.ainvoke()."""
         last_msg = state["messages"][-1]
         tool_messages = []
 
         for tc in last_msg.tool_calls:
             tool_name = tc["name"]
             tool_args = tc["args"]
-            result = await self.tool_registry.execute(tool_name, **tool_args)
+            tool = self._tool_map.get(tool_name)
+            if tool:
+                try:
+                    result = await tool.ainvoke(tool_args)
+                except Exception as e:
+                    result = f"Error: {e}"
+            else:
+                result = f"Tool '{tool_name}' not found. Available: {list(self._tool_map.keys())}"
             tool_messages.append(ToolMessage(
-                content=result.to_llm_message(),
+                content=str(result),
                 tool_call_id=tc["id"],
                 name=tool_name,
             ))
