@@ -15,18 +15,30 @@ class WebSearchTool(BaseTool):
         "properties": {
             "query": {
                 "type": "string",
-                "description": "The search query, e.g. 'latest AI news 2026'",
-            }
+                "description": "The search query",
+            },
+            "time_range": {
+                "type": "string",
+                "enum": ["", "day", "week", "month", "year"],
+                "description": "Time filter: empty=any time, day, week, month, year",
+            },
+            "language": {
+                "type": "string",
+                "description": "Search language code, e.g. zh-CN, en, ja",
+            },
         },
         "required": ["query"],
     }
 
-    async def execute(self, query: str = "", **kwargs) -> ToolResult:
+    async def execute(self, query: str = "", time_range: str = "", language: str = "zh-CN", **kwargs) -> ToolResult:
         if not query.strip():
             return ToolResult(success=False, output="", error="Query is empty")
 
         backend = get_search_backend()
-        results = await backend.search(query, max_results=5)
+        results = await backend.search(
+            query, max_results=5,
+            time_range=time_range, language=language,
+        )
 
         if not results:
             return ToolResult(

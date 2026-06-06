@@ -169,26 +169,48 @@ class SearXNGBackend:
         SEARXNG_URL=http://localhost:8080
 
     GitHub: https://github.com/searxng/searxng
+    API docs: https://docs.searxng.org/dev/search_api.html
+
+    Customization: edit deploy/searxng/settings.yml to:
+      - Enable/disable specific engines (Google, Bing, Wikipedia...)
+      - Set default language, safesearch, time range
+      - Add API-key-only engines (e.g., Brave, Google via API)
     """
 
     name = "searxng"
 
-    async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
+    async def search(
+        self,
+        query: str,
+        max_results: int = 5,
+        *,
+        # Optional customization params (passed via kwargs from tool)
+        language: str = "zh-CN",       # Search language: zh-CN, en, ja, fr...
+        categories: str = "general",   # general, news, science, images, videos, it, files
+        time_range: str = "",          # day, week, month, year (empty = any time)
+        safesearch: int = 0,           # 0=off, 1=moderate, 2=strict
+        engines: str = "",             # Comma-separated engine list, e.g. "google,bing,wikipedia"
+    ) -> list[SearchResult]:
         import httpx
 
         base_url = os.getenv("SEARXNG_URL", "http://localhost:8080").rstrip("/")
 
+        # Build query params — SearXNG supports all these natively
+        params: dict[str, str | int] = {
+            "q": query,
+            "format": "json",
+            "categories": categories,
+            "language": language,
+            "safesearch": safesearch,
+        }
+        if time_range:
+            params["time_range"] = time_range
+        if engines:
+            params["engines"] = engines
+
         async with httpx.AsyncClient(timeout=15) as client:
             try:
-                resp = await client.get(
-                    f"{base_url}/search",
-                    params={
-                        "q": query,
-                        "format": "json",
-                        "categories": "general",
-                        "language": "zh-CN",
-                    },
-                )
+                resp = await client.get(f"{base_url}/search", params=params)
                 resp.raise_for_status()
                 data = resp.json()
                 return [
