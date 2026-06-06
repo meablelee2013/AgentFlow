@@ -65,9 +65,14 @@ export const api = {
         if (done) break;
         const text = decoder.decode(value);
         for (const line of text.split("\n")) {
-          if (line.startsWith("data: ") && line !== "data: [DONE]") {
-            onToken(line.slice(6));
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6);
+          if (payload === "[DONE]") continue;
+          if (payload.startsWith("[THREAD:")) {
+            tid = payload.slice(8, -1);
+            continue;
           }
+          onToken(payload);
         }
       }
       onDone(tid);

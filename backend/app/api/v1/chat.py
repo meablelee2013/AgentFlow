@@ -1,4 +1,5 @@
 """Chat API — conversation endpoints with PostgreSQL persistence"""
+import uuid
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -55,14 +56,18 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/stream")
 async def chat_stream(req: ChatRequest):
-    """Send message — SSE streaming response"""
+    """Send message — SSE streaming response with thread_id"""
     async def event_stream():
+        tid = req.thread_id or str(uuid.uuid4())
+        # Send thread_id as first event
+        yield f"data: [THREAD:{tid}]\n\n"
+
         async for token in engine.stream(
             [{"role": "user", "content": req.message}],
-            thread_id=req.thread_id,
+            thread_id=tid,
         ):
             yield f"data: {token}\n\n"
-        yield "data: [DONE]\n\n"
+        yield f"data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

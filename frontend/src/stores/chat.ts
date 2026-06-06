@@ -1,8 +1,9 @@
-/** Zustand store for chat state management */
+/** Zustand store for chat state management with streaming support */
 import { create } from "zustand";
-import { api, type ChatResponse } from "../api/client";
+import { api } from "../api/client";
 
 interface Message {
+  id: string;
   role: "user" | "assistant";
   content: string;
 }
@@ -11,50 +12,61 @@ interface ChatState {
   messages: Message[];
   threadId: string | null;
   loading: boolean;
-  streaming: string; // current streaming token
+  streaming: string;
+  editingId: string | null;
 
   send: (content: string) => Promise<void>;
   loadHistory: (tid: string) => Promise<void>;
+  editMessage: (id: string, content: string) => void;
   clear: () => void;
 }
+
+let msgCounter = 0;
+const nextId = () => `msg-${++msgCounter}`;
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   threadId: null,
   loading: false,
   streaming: "",
+  editingId: null,
 
   send: async (content: string) => {
     const { threadId } = get();
-    set({ loading: true, streaming: "" });
+    const userMsg: Message = { id: nextId(), role: "user", content };
+    const assistantId = nextId();
 
-    // Add user message immediately
     set((s) => ({
-      messages: [...s.messages, { role: "user", content }],
+      messages: [...s.messages, userMsg],
+      loading: true,
+      streaming: "",
     }));
 
-    try {
-      const res: ChatResponse = await api.chat(content, threadId || undefined);
-      set((s) => ({
-        messages: [
-          ...s.messages,
-          { role: "assistant", content: res.message },
-        ],
-        threadId: res.thread_id,
-        loading: false,
-      }));
-    } catch (err) {
-      set((s) => ({
-        messages: [
-          ...s.messages,
-          {
-            role: "assistant",
-            content: `Error: ${err instanceof Error ? err.message : "Failed to send"}`,
-          },
-        ],
-        loading: false,
-      }));
-    }
+    // Accumulate streamed tokens
+    let fullResponse = "";
+    const controller = api.streamChat(
+      content,
+      threadId || undefined,
+      (token) => {
+        fullResponse += token;
+        set({ streaming: fullResponse });
+      },
+      (finalTid) => {
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            { id: assistantId, role: "assistant", content: fullResponse },
+          ],
+          threadId: finalTid || s.threadId,
+          loading: false,
+          streaming: "",
+        }));
+      }
+    );
+
+    // Expose controller for abort (future: cancel button)
+    (window as unknown as Record<string, unknown>).__abortStream = () =>
+      controller.abort();
   },
 
   loadHistory: async (tid: string) => {
@@ -62,6 +74,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const hist = await api.getHistory(tid);
       set({
         messages: hist.messages.map((m) => ({
+          id: nextId(),
           role: m.role as "user" | "assistant",
           content: m.content,
         })),
@@ -72,5 +85,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  clear: () => set({ messages: [], threadId: null, streaming: "" }),
+  editMessage: (id: string, content: string) => {
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === id ? { ...m, content } : m
+      ),
+    }));
+  },
+
+  clear: () =>
+    set({ messages: [], threadId: null, streaming: "", editingId: null }),
 }));
