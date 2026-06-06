@@ -1,25 +1,43 @@
 import { useState, useEffect, useRef } from "react";
-import {
-  Upload, Link, Database, CheckCircle2, Loader2,
-  AlertCircle, Plus, Trash2, ChevronRight, FolderOpen,
-} from "lucide-react";
+import { Plus, Trash2, Upload, Link, FileText, Loader2, CheckCircle2, AlertCircle, Clock, ArrowLeft, Database } from "lucide-react";
 import { api, type KnowledgeBaseItem } from "../api/client";
 
+type DocStatus = "pending" | "processing" | "ready" | "error";
+
+interface Doc {
+  id: string;
+  filename: string;
+  file_type: string;
+  chunk_count: number;
+  status: DocStatus;
+  created_at: string;
+}
+
+type View = "list" | "detail";
+
 export function KnowledgeBase() {
+  const [view, setView] = useState<View>("list");
   const [bases, setBases] = useState<KnowledgeBaseItem[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [selectedKb, setSelectedKb] = useState<KnowledgeBaseItem | null>(null);
   const [newName, setNewName] = useState("");
-  const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  // Upload state
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [urlValue, setUrlValue] = useState("");
-  const [ingesting, setIngesting] = useState(false);
+  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "processing">("idle");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadBases = async () => {
+    try { setBases(await api.listBases()); } catch { /* */ }
+  };
+
+  const loadDocs = async (kbId: string) => {
     try {
-      const data = await api.listBases();
-      setBases(data);
-    } catch { /* backend might not be running */ }
+      const res = await fetch(`/api/v1/knowledge/bases/${kbId}/documents`).then(r => r.json());
+      setDocs(res);
+    } catch { /* */ }
   };
 
   useEffect(() => { loadBases(); }, []);
@@ -29,240 +47,286 @@ export function KnowledgeBase() {
     if (!name) return;
     setCreating(true);
     try {
-      const res = await fetch("/api/v1/knowledge/bases", {
+      await fetch("/api/v1/knowledge/bases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      if (!res.ok) throw new Error("Failed");
       setNewName("");
       await loadBases();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Create failed");
-    }
+    } catch (err) { alert("Create failed"); }
     setCreating(false);
   };
 
-  const handleDelete = async (id: string, name: string) => {
+  const handleDeleteKb = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}" and all its documents?`)) return;
-    try {
-      await fetch(`/api/v1/knowledge/bases/${id}`, { method: "DELETE" });
-      if (selectedKbId === id) setSelectedKbId(null);
-      await loadBases();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed");
-    }
+    await fetch(`/api/v1/knowledge/bases/${id}`, { method: "DELETE" });
+    if (selectedKb?.id === id) { setSelectedKb(null); setView("list"); }
+    await loadBases();
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
+  const handleDeleteDoc = async (docId: string) => {
+    if (!selectedKb) return;
+    await fetch(`/api/v1/knowledge/bases/${selectedKb.id}/documents/${docId}`, { method: "DELETE" });
+    await loadDocs(selectedKb.id);
+  };
+
+  const handleSelectKb = async (kb: KnowledgeBaseItem) => {
+    setSelectedKb(kb);
+    setView("detail");
+    await loadDocs(kb.id);
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile || !selectedKb) return;
+    setUploadState("uploading");
     try {
-      await api.upload(file, selectedKbId || undefined);
+      // Upload
+      const form = new FormData();
+      form.append("file", selectedFile);
+      if (selectedKb) form.append("knowledge_base_id", selectedKb.id);
+      setUploadState("processing");
+      await fetch("/api/v1/knowledge/upload", { method: "POST", body: form });
+      // Refresh
+      await loadDocs(selectedKb.id);
       await loadBases();
+      setSelectedFile(null);
+      setUploadState("idle");
+      if (fileRef.current) fileRef.current.value = "";
     } catch (err) {
       alert(err instanceof Error ? err.message : "Upload failed");
+      setUploadState("idle");
     }
-    setUploading(false);
-    if (fileRef.current) fileRef.current.value = "";
   };
 
-  const handleIngestUrl = async () => {
-    const url = urlValue.trim();
-    if (!url) return;
-    setIngesting(true);
+  const handleUrlIngest = async () => {
+    if (!urlValue.trim() || !selectedKb) return;
+    setUploadState("processing");
     try {
-      await api.ingestUrl(url, selectedKbId || undefined);
+      await api.ingestUrl(urlValue.trim(), selectedKb.id);
       setUrlValue("");
+      await loadDocs(selectedKb.id);
       await loadBases();
+      setUploadState("idle");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Ingest failed");
+      setUploadState("idle");
     }
-    setIngesting(false);
   };
 
-  const selectedKb = bases.find((b) => b.id === selectedKbId);
+  const statusIcon = (s: string) => {
+    switch (s) {
+      case "ready": return <CheckCircle2 size={14} className="text-accent" />;
+      case "processing": return <Loader2 size={14} className="text-blue-500 animate-spin" />;
+      case "pending": return <Clock size={14} className="text-gray-300" />;
+      case "error": return <AlertCircle size={14} className="text-red-400" />;
+      default: return <Clock size={14} className="text-gray-300" />;
+    }
+  };
+
+  // === LIST VIEW ===
+  if (view === "list") {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-ink tracking-tight">Knowledge Bases</h1>
+            <p className="text-sm text-gray-400 mt-1">Create separate bases for different teams or topics</p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text" value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="Name..."
+              className="px-3 py-1.5 text-sm rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-ink/10 w-40"
+              onKeyDown={e => e.key === "Enter" && handleCreate()}
+            />
+            <button onClick={handleCreate} disabled={creating || !newName.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-ink text-white hover:bg-slate-hover disabled:opacity-30 transition-colors">
+              <Plus size={14} /> Create
+            </button>
+          </div>
+        </div>
+
+        {bases.length === 0 ? (
+          <div className="text-center py-20">
+            <Database size={36} className="text-gray-200 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-ink mb-1">No knowledge bases yet</h3>
+            <p className="text-sm text-gray-400">Create one above to start uploading documents</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {bases.map(kb => (
+              <button key={kb.id}
+                onClick={() => handleSelectKb(kb)}
+                className="w-full flex items-center gap-4 p-4 rounded-xl bg-white border border-border
+                           hover:border-ink/20 hover:shadow-sm transition-all text-left group">
+                <div className="w-10 h-10 rounded-xl bg-ink/5 flex items-center justify-center">
+                  <Database size={20} className="text-ink/50" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-ink">{kb.name}</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">{kb.id.slice(0, 8)}...</p>
+                </div>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  kb.status === "ready" ? "bg-accent/10 text-accent" :
+                  kb.status === "error" ? "bg-red-50 text-red-500" : "bg-blue-50 text-blue-500"
+                }`}>{kb.status}</span>
+                <button onClick={e => { e.stopPropagation(); handleDeleteKb(kb.id, kb.name); }}
+                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
+                  <Trash2 size={14} />
+                </button>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // === DETAIL VIEW ===
+  if (!selectedKb) return null;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* Header */}
+    <div className="p-6 max-w-3xl mx-auto">
+      {/* Back + Title */}
+      <button onClick={() => { setView("list"); setSelectedKb(null); }}
+        className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-ink mb-4 transition-colors">
+        <ArrowLeft size={14} /> Back to bases
+      </button>
+
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-ink tracking-tight">
-            Knowledge Base
-          </h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Create separate bases for different teams or topics
-          </p>
+          <h1 className="text-xl font-bold text-ink">{selectedKb.name}</h1>
+          <p className="text-xs text-gray-400 font-mono mt-1">{selectedKb.id}</p>
         </div>
-
-        {/* Create new */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="New base name..."
-            className="px-3 py-1.5 text-sm rounded-lg border border-border bg-white
-                       focus:outline-none focus:ring-2 focus:ring-ink/10
-                       placeholder:text-gray-300 w-44"
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-          />
-          <button
-            onClick={handleCreate}
-            disabled={creating || !newName.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
-                       bg-ink text-white hover:bg-slate-hover disabled:opacity-30
-                       transition-colors"
-          >
-            <Plus size={14} />
-            Create
-          </button>
-        </div>
+        <button onClick={() => handleDeleteKb(selectedKb.id, selectedKb.name)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+          <Trash2 size={12} /> Delete base
+        </button>
       </div>
 
-      {/* KB Selector + Upload */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {/* KB List */}
-        <div className="col-span-1 bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-            <Database size={14} className="text-gray-400" />
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Bases
-            </span>
-            <span className="text-[10px] text-gray-400 font-mono ml-auto">
-              {bases.length}
-            </span>
-          </div>
-          <div className="divide-y divide-border/50 max-h-64 overflow-y-auto">
-            {bases.length === 0 ? (
-              <div className="px-4 py-8 text-center">
-                <FolderOpen size={24} className="text-gray-200 mx-auto mb-2" />
-                <p className="text-xs text-gray-400">No bases yet</p>
-              </div>
-            ) : (
-              bases.map((kb) => (
-                <button
-                  key={kb.id}
-                  onClick={() =>
-                    setSelectedKbId(selectedKbId === kb.id ? null : kb.id)
-                  }
-                  className={`w-full px-4 py-3 flex items-center gap-2.5 text-left hover:bg-gray-50
-                              transition-colors ${
-                                selectedKbId === kb.id ? "bg-ink/[0.03] border-l-2 border-ink" : ""
-                              }`}
-                >
-                  {kb.status === "ready" ? (
-                    <CheckCircle2 size={14} className="text-accent shrink-0" />
-                  ) : kb.status === "error" ? (
-                    <AlertCircle size={14} className="text-red-400 shrink-0" />
-                  ) : (
-                    <Loader2 size={14} className="text-gray-300 animate-spin shrink-0" />
-                  )}
-                  <span className="flex-1 text-sm font-medium text-ink/80 truncate">
-                    {kb.name}
-                  </span>
-                  <ChevronRight
-                    size={14}
-                    className={`text-gray-300 transition-transform shrink-0 ${
-                      selectedKbId === kb.id ? "rotate-90" : ""
-                    }`}
-                  />
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Upload area */}
-        <div className="col-span-2 space-y-3">
-          {selectedKb && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-ink/5 text-sm">
-              <span className="text-gray-500">Uploading to</span>
-              <span className="font-semibold text-ink">{selectedKb.name}</span>
-              <button
-                onClick={() => setSelectedKbId(null)}
-                className="ml-auto text-xs text-gray-400 hover:text-gray-600"
-              >
-                clear
-              </button>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            {/* File upload */}
-            <div
-              onClick={() => fileRef.current?.click()}
-              className="group p-5 rounded-2xl border-2 border-dashed border-border
-                         hover:border-ink/30 hover:bg-ink/[0.02] transition-all cursor-pointer text-center"
-            >
-              <input
-                ref={fileRef}
-                type="file"
-                onChange={handleUpload}
-                className="hidden"
+      {/* Upload Section */}
+      <div className={`rounded-2xl border-2 border-dashed p-6 mb-6 transition-all ${
+        uploadState === "idle" ? "border-border" : "border-accent/50 bg-accent/[0.02]"
+      }`}>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {/* File */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">File Upload</p>
+            <div className="flex gap-2">
+              <input ref={fileRef} type="file"
+                onChange={e => setSelectedFile(e.target.files?.[0] || null)}
+                className="flex-1 text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg
+                           file:text-xs file:font-medium file:border-0 file:bg-ink/5 file:text-ink/70
+                           hover:file:bg-ink/10"
                 accept=".pdf,.docx,.doc,.md,.markdown,.txt,.text,.log,.csv,.xlsx,.xls,.pptx,.ppt,.json,.epub,.html,.htm"
               />
-              {uploading ? (
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 size={24} className="text-ink animate-spin" />
-                  <span className="text-xs text-ink/60 font-medium">Processing...</span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-ink/5 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Upload size={18} className="text-ink/60" />
-                  </div>
-                  <span className="text-sm font-medium text-ink/80">Upload File</span>
-                  <span className="text-[11px] text-gray-400">17 formats supported</span>
-                </div>
-              )}
             </div>
-
-            {/* URL ingest */}
-            <div className="p-5 rounded-2xl border-2 border-dashed border-border hover:border-ink/30 hover:bg-ink/[0.02] transition-all">
-              <div className="flex flex-col items-center gap-2 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-ink/5 flex items-center justify-center">
-                  <Link size={18} className="text-ink/60" />
-                </div>
-                <span className="text-sm font-medium text-ink/80">Ingest URL</span>
-                <span className="text-[11px] text-gray-400">Web page extraction</span>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={urlValue}
-                  onChange={(e) => setUrlValue(e.target.value)}
-                  placeholder="https://..."
-                  className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ink/10"
-                  onKeyDown={(e) => e.key === "Enter" && handleIngestUrl()}
-                />
-                <button
-                  onClick={handleIngestUrl}
-                  disabled={ingesting || !urlValue.trim()}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-ink text-white hover:bg-slate-hover disabled:opacity-30 transition-colors"
-                >
-                  {ingesting ? <Loader2 size={12} className="animate-spin" /> : "Go"}
-                </button>
-              </div>
-            </div>
+            {selectedFile && (
+              <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+                <FileText size={10} /> {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
+              </p>
+            )}
           </div>
 
-          {/* Delete selected */}
-          {selectedKb && (
-            <div className="flex justify-end">
-              <button
-                onClick={() => handleDelete(selectedKb.id, selectedKb.name)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:text-red-600
-                           hover:bg-red-50 rounded-lg transition-colors"
-              >
-                <Trash2 size={12} />
-                Delete "{selectedKb.name}"
-              </button>
-            </div>
-          )}
+          {/* URL */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Or Ingest URL</p>
+            <input type="url" value={urlValue}
+              onChange={e => setUrlValue(e.target.value)}
+              placeholder="https://..."
+              className="w-full px-3 py-1.5 text-xs rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ink/10"
+              onKeyDown={e => e.key === "Enter" && urlValue.trim() && handleUrlIngest()}
+            />
+          </div>
         </div>
+
+        {/* Upload button */}
+        <div className="flex gap-2 justify-end">
+          {urlValue.trim() && (
+            <button onClick={handleUrlIngest}
+              disabled={uploadState !== "idle"}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl
+                         bg-violet-500 text-white hover:bg-violet-600 disabled:opacity-30 transition-colors">
+              <Link size={14} /> Ingest URL
+            </button>
+          )}
+          <button onClick={handleUpload}
+            disabled={!selectedFile || uploadState !== "idle"}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl
+                       bg-ink text-white hover:bg-slate-hover disabled:opacity-30 transition-colors">
+            <Upload size={14} />
+            {uploadState === "idle" ? "Upload" : uploadState === "uploading" ? "Uploading..." : "Processing..."}
+          </button>
+        </div>
+
+        {/* Progress indicator */}
+        {uploadState !== "idle" && (
+          <div className="mt-4">
+            <div className="flex items-center gap-2 mb-1">
+              {uploadState === "uploading" ? (
+                <Loader2 size={14} className="text-blue-500 animate-spin" />
+              ) : (
+                <Loader2 size={14} className="text-accent animate-spin" />
+              )}
+              <span className="text-xs font-medium text-ink/70">
+                {uploadState === "uploading" ? "Uploading file..." : "Processing — chunking, embedding, indexing..."}
+              </span>
+            </div>
+            <div className="h-1 bg-border rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-500 ${
+                uploadState === "uploading"
+                  ? "w-1/3 bg-blue-400 animate-pulse"
+                  : "w-2/3 bg-accent animate-pulse"
+              }`} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Documents List */}
+      <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+          <FileText size={14} className="text-gray-400" />
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Documents</span>
+          <span className="text-[10px] text-gray-400 font-mono ml-auto">{docs.length} files</span>
+        </div>
+        {docs.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <Upload size={28} className="text-gray-200 mx-auto mb-3" />
+            <p className="text-sm text-gray-400">No documents yet</p>
+            <p className="text-xs text-gray-300 mt-1">Select a file or enter a URL above</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {docs.map(doc => (
+              <div key={doc.id} className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50/50 transition-colors group">
+                {statusIcon(doc.status)}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-ink/80 truncate">{doc.filename}</span>
+                    <span className="text-[10px] font-mono text-gray-400 shrink-0">.{doc.file_type}</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <span className={`text-[10px] font-mono ${
+                      doc.status === "ready" ? "text-accent" :
+                      doc.status === "error" ? "text-red-400" :
+                      doc.status === "processing" ? "text-blue-500" : "text-gray-400"
+                    }`}>{doc.status}</span>
+                    {doc.chunk_count > 0 && (
+                      <span className="text-[10px] text-gray-300 font-mono">{doc.chunk_count} chunks</span>
+                    )}
+                  </div>
+                </div>
+                <button onClick={() => handleDeleteDoc(doc.id)}
+                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
