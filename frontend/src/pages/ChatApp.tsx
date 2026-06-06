@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Plus, MessageSquare, RefreshCw } from "lucide-react";
 import { ChatWindow } from "../components/chat/ChatWindow";
 import { useChatStore } from "../stores/chat";
+import { api } from "../api/client";
 
 interface Conv {
   thread_id: string;
@@ -18,7 +19,7 @@ export function ChatApp() {
   const loadConvs = async () => {
     setLoadingConvs(true);
     try {
-      const data = await fetch("/api/v1/chat/conversations").then((r) => r.json());
+      const data = await api.listConversations();
       setConvs(data);
     } catch { /* */ }
     setLoadingConvs(false);
