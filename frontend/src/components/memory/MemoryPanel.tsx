@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, Trash2, Brain, ChevronRight, AlertTriangle } from "lucide-react";
-import { api } from "../../api/client";
+import { api, getMemoryEnabled, setMemoryEnabled } from "../../api/client";
 import type { MemoryItem } from "../../api/client";
 
 interface Props {
@@ -28,6 +28,13 @@ export function MemoryPanel({ open, onClose }: Props) {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [enabled, setEnabled] = useState(() => getMemoryEnabled());
+
+  const handleToggle = () => {
+    const next = !enabled;
+    setEnabled(next);
+    setMemoryEnabled(next);
+  };
 
   const loadMemories = async () => {
     setLoading(true);
@@ -85,6 +92,36 @@ export function MemoryPanel({ open, onClose }: Props) {
             className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
           >
             <X size={16} className="text-ink/40" />
+          </button>
+        </div>
+
+        {/* Memory toggle */}
+        <div className="px-4 py-2.5 border-b border-border/60 bg-gray-50/50">
+          <button
+            onClick={handleToggle}
+            className="w-full flex items-center gap-3 group"
+          >
+            <div
+              className={`relative w-9 h-5 rounded-full transition-colors ${
+                enabled ? "bg-ink/80" : "bg-gray-300"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                  enabled ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-[12px] font-medium text-ink/80">
+                {enabled ? "Memory is on" : "Memory is paused"}
+              </p>
+              <p className="text-[10px] text-gray-400 leading-tight">
+                {enabled
+                  ? "Facts about you will be remembered across conversations."
+                  : "No new memories will be saved. Existing ones are kept."}
+              </p>
+            </div>
           </button>
         </div>
 

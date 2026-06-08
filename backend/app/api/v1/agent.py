@@ -37,6 +37,12 @@ class ToolInfo(BaseModel):
     description: str
 
 
+def _parse_memory_enabled(
+    x_memory_enabled: str | None = Header("true", alias="X-Memory-Enabled"),
+) -> bool:
+    return x_memory_enabled.lower() not in ("false", "0", "no", "off")
+
+
 def _parse_user_id(x_user_id: str | None = Header(None, alias="X-User-Id")) -> uuid.UUID | None:
     if not x_user_id:
         return None
@@ -52,8 +58,13 @@ async def _extract_memories_bg(
     user_id: uuid.UUID,
     message: str,
     reply: str,
+    memory_enabled: bool = True,
 ):
     from app.config import settings
+
+    if not memory_enabled:
+        logger.debug("memory_extraction_disabled_by_user", thread_id=thread_id)
+        return
 
     async with AsyncSessionLocal() as db:
         try:
@@ -83,6 +94,7 @@ async def agent_chat(
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = None,
     user_id: uuid.UUID | None = Depends(_parse_user_id),
+    memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message to agent with tool access — synchronous."""
     sp = await build_system_prompt(
@@ -103,9 +115,9 @@ async def agent_chat(
     conv = await service.save_message(tid, "user", req.message, user_id=user_id)
     await service.save_message(tid, "assistant", reply, user_id=user_id)
 
-    if user_id and background_tasks:
+    if user_id and background_tasks and memory_enabled:
         background_tasks.add_task(
-            _extract_memories_bg, tid, conv.id, user_id, req.message, reply,
+            _extract_memories_bg, tid, conv.id, user_id, req.message, reply, memory_enabled,
         )
 
     return AgentResponse(thread_id=tid, message=reply, is_new=result["is_new"])
@@ -117,6 +129,7 @@ async def agent_stream(
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = None,
     user_id: uuid.UUID | None = Depends(_parse_user_id),
+    memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message to agent — SSE streaming."""
     async def event_stream():
@@ -145,9 +158,9 @@ async def agent_stream(
         conv = await service.save_message(tid, "user", req.message, user_id=user_id)
         await service.save_message(tid, "assistant", full_response, user_id=user_id)
 
-        if user_id and background_tasks:
+        if user_id and background_tasks and memory_enabled:
             background_tasks.add_task(
-                _extract_memories_bg, tid, conv.id, user_id, req.message, full_response,
+                _extract_memories_bg, tid, conv.id, user_id, req.message, full_response, memory_enabled,
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

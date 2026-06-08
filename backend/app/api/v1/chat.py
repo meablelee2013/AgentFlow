@@ -54,15 +54,27 @@ def _parse_user_id(x_user_id: str | None = Header(None, alias="X-User-Id")) -> u
         return None
 
 
+def _parse_memory_enabled(
+    x_memory_enabled: str | None = Header("true", alias="X-Memory-Enabled"),
+) -> bool:
+    """Parse X-Memory-Enabled header. Defaults to true (opt-out)."""
+    return x_memory_enabled.lower() not in ("false", "0", "no", "off")
+
+
 async def _extract_memories_background(
     thread_id: str,
     conversation_id: uuid.UUID,
     user_id: uuid.UUID,
     message: str,
     reply: str,
+    memory_enabled: bool = True,
 ):
     """Background task: extract user memories after response completes."""
     from app.config import settings
+
+    if not memory_enabled:
+        logger.debug("memory_extraction_disabled_by_user", thread_id=thread_id)
+        return
 
     async with AsyncSessionLocal() as db:
         try:
@@ -118,6 +130,7 @@ async def chat(
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = None,
     user_id: uuid.UUID | None = Depends(_parse_user_id),
+    memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message — synchronous full response"""
     # Build system prompt with user memories
@@ -141,10 +154,10 @@ async def chat(
     await service.save_message(tid, "assistant", reply, user_id=user_id)
 
     # Schedule background memory extraction
-    if user_id and background_tasks:
+    if user_id and background_tasks and memory_enabled:
         background_tasks.add_task(
             _extract_memories_background,
-            tid, conv.id, user_id, req.message, reply,
+            tid, conv.id, user_id, req.message, reply, memory_enabled,
         )
 
     return ChatResponse(
@@ -160,6 +173,7 @@ async def chat_stream(
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = None,
     user_id: uuid.UUID | None = Depends(_parse_user_id),
+    memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message — SSE streaming response, persisted to PostgreSQL"""
     async def event_stream():
@@ -192,10 +206,10 @@ async def chat_stream(
         await service.save_message(tid, "assistant", full_response, user_id=user_id)
 
         # Schedule background memory extraction
-        if user_id and background_tasks:
+        if user_id and background_tasks and memory_enabled:
             background_tasks.add_task(
                 _extract_memories_background,
-                tid, conv.id, user_id, req.message, full_response,
+                tid, conv.id, user_id, req.message, full_response, memory_enabled,
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

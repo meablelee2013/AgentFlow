@@ -15,8 +15,19 @@ function getUserId(): string {
   return id;
 }
 
+export function getMemoryEnabled(): boolean {
+  return localStorage.getItem("agentflow_memory_enabled") !== "false";
+}
+
+export function setMemoryEnabled(enabled: boolean): void {
+  localStorage.setItem("agentflow_memory_enabled", String(enabled));
+}
+
 function authHeaders(): Record<string, string> {
-  return { "X-User-Id": getUserId() };
+  return {
+    "X-User-Id": getUserId(),
+    "X-Memory-Enabled": String(getMemoryEnabled()),
+  };
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
