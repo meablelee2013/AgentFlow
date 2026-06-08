@@ -32,6 +32,7 @@ from langchain_core.runnables import RunnableConfig
 from app.config import settings
 from app.core.llm.factory import LLMFactory
 from app.core.engine.checkpoint import CheckpointerManager
+from app.core.engine.prompts import CHAT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT_STREAM
 
 
 # ── State definition ──────────────────────────────────────────────
@@ -110,12 +111,15 @@ class ChatGraphEngine:
         self,
         messages: list[dict],
         thread_id: str | None = None,
+        system_prompt: str | None = None,
     ) -> dict[str, Any]:
         """Execute conversation, return complete result
 
         Args:
             messages: [{"role": "user", "content": "..."}]
             thread_id: Session ID, None creates a new session
+            system_prompt: Optional override for the system prompt.
+                If None, uses the default CHAT_SYSTEM_PROMPT.
 
         Returns:
             {
@@ -132,15 +136,8 @@ class ChatGraphEngine:
         }
 
         input_messages = [HumanMessage(content=m["content"]) for m in messages] if messages else []
-        # Prepend system prompt: always use Markdown for structured responses
-        input_messages.insert(0, SystemMessage(content=(
-            "You are a helpful AI assistant. Always format your responses using Markdown "
-            "for clarity. Use headers (##), bullet lists (-), numbered lists (1.), "
-            "**bold** for emphasis, `code` for technical terms, and > for quotes. "
-            "For any information that benefits from structure — lists, comparisons, "
-            "steps, or sections — use the appropriate Markdown syntax. "
-            "Keep responses concise and well-organized."
-        )))
+        # Prepend system prompt with optional override (includes user memories when provided)
+        input_messages.insert(0, SystemMessage(content=system_prompt or CHAT_SYSTEM_PROMPT))
         input_state = {"messages": input_messages}
 
         result = await self._app.ainvoke(input_state, config=config)
@@ -155,6 +152,7 @@ class ChatGraphEngine:
         self,
         messages: list[dict],
         thread_id: str | None = None,
+        system_prompt: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream conversation, push SSE events token by token
 
@@ -164,7 +162,6 @@ class ChatGraphEngine:
                     yield f"data: {token}\n\n"
             return StreamingResponse(chat_stream(), media_type="text/event-stream")
         """
-        is_new = thread_id is None
         tid = thread_id or str(uuid.uuid4())
 
         config: RunnableConfig = {
@@ -172,11 +169,7 @@ class ChatGraphEngine:
         }
 
         input_messages = [HumanMessage(content=m["content"]) for m in messages] if messages else []
-        input_messages.insert(0, SystemMessage(content=(
-            "You are a helpful AI assistant. Always format your responses using Markdown "
-            "for clarity. Use headers (##), bullet lists (-), numbered lists (1.), "
-            "**bold** for emphasis, `code` for technical terms, and > for quotes."
-        )))
+        input_messages.insert(0, SystemMessage(content=system_prompt or CHAT_SYSTEM_PROMPT_STREAM))
         input_state = {"messages": input_messages}
 
         # streaming output — astream_events captures each token

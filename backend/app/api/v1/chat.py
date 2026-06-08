@@ -1,19 +1,25 @@
-"""Chat API — conversation endpoints with PostgreSQL persistence"""
+"""Chat API — conversation endpoints with PostgreSQL persistence and user memory"""
 import uuid
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import structlog
 
 from app.core.engine.chat_engine import ChatGraphEngine
-from app.api.v1.deps import get_db
+from app.core.engine.prompts import CHAT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT_STREAM
+from app.core.memory import build_system_prompt
+from app.core.memory.extractor import MemoryExtractor
+from app.api.v1.deps import get_db, AsyncSessionLocal
 from app.services.chat_service import ChatService
+from app.models.conversation import Conversation as ConvModel
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 engine = ChatGraphEngine()
+extractor = MemoryExtractor()
 
 
 class ChatRequest(BaseModel):
@@ -38,14 +44,63 @@ class ConversationItem(BaseModel):
     updated_at: str | None = None
 
 
+def _parse_user_id(x_user_id: str | None = Header(None, alias="X-User-Id")) -> uuid.UUID | None:
+    """Parse X-User-Id header to UUID."""
+    if not x_user_id:
+        return None
+    try:
+        return uuid.UUID(x_user_id)
+    except ValueError:
+        return None
+
+
+async def _extract_memories_background(
+    thread_id: str,
+    conversation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    message: str,
+    reply: str,
+):
+    """Background task: extract user memories after response completes."""
+    from app.config import settings
+
+    async with AsyncSessionLocal() as db:
+        try:
+            service = ChatService(db)
+            recent = await service.get_recent_messages(
+                thread_id,
+                limit=settings.MEMORY_EXTRACTION_MAX_MESSAGES,
+            )
+            # If recent is empty (first message), use the just-sent exchange
+            if not recent:
+                recent = [
+                    {"role": "user", "content": message},
+                    {"role": "assistant", "content": reply},
+                ]
+            await extractor.extract_and_persist(
+                thread_id=thread_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                messages=recent,
+                db_session=db,
+            )
+        except Exception:
+            logger.exception(
+                "background_memory_extraction_failed",
+                thread_id=thread_id,
+            )
+
+
 @router.get("/conversations", response_model=list[ConversationItem])
-async def list_conversations(db: AsyncSession = Depends(get_db)):
-    """List all conversation threads."""
-    from sqlalchemy import select
-    from app.models.conversation import Conversation as ConvModel
-    result = await db.execute(
-        select(ConvModel).order_by(ConvModel.updated_at.desc()).limit(50)
-    )
+async def list_conversations(
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID | None = Depends(_parse_user_id),
+):
+    """List conversation threads for the current user."""
+    stmt = select(ConvModel).order_by(ConvModel.updated_at.desc()).limit(50)
+    if user_id:
+        stmt = stmt.where(ConvModel.user_id == user_id)
+    result = await db.execute(stmt)
     convs = result.scalars().all()
     return [
         ConversationItem(
@@ -58,19 +113,39 @@ async def list_conversations(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat(
+    req: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks = None,
+    user_id: uuid.UUID | None = Depends(_parse_user_id),
+):
     """Send message — synchronous full response"""
+    # Build system prompt with user memories
+    sp = await build_system_prompt(
+        base_prompt=CHAT_SYSTEM_PROMPT,
+        user_id=user_id,
+        db=db,
+    ) if user_id else CHAT_SYSTEM_PROMPT
+
     result = await engine.run(
         [{"role": "user", "content": req.message}],
         thread_id=req.thread_id,
+        system_prompt=sp,
     )
     reply = result["messages"][-1]["content"] if result["messages"] else ""
     tid = result["thread_id"]
 
     # Persist both user message and assistant response to PostgreSQL
     service = ChatService(db)
-    await service.save_message(tid, "user", req.message)
-    await service.save_message(tid, "assistant", reply)
+    conv = await service.save_message(tid, "user", req.message, user_id=user_id)
+    await service.save_message(tid, "assistant", reply, user_id=user_id)
+
+    # Schedule background memory extraction
+    if user_id and background_tasks:
+        background_tasks.add_task(
+            _extract_memories_background,
+            tid, conv.id, user_id, req.message, reply,
+        )
 
     return ChatResponse(
         thread_id=tid,
@@ -80,7 +155,12 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat_stream(
+    req: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks = None,
+    user_id: uuid.UUID | None = Depends(_parse_user_id),
+):
     """Send message — SSE streaming response, persisted to PostgreSQL"""
     async def event_stream():
         tid = req.thread_id or str(uuid.uuid4())
@@ -88,9 +168,19 @@ async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         # Send thread_id as first event
         yield f"data: [THREAD:{tid}]\n\n"
 
+        # Build system prompt with user memories (inside generator to use db)
+        sp = CHAT_SYSTEM_PROMPT_STREAM
+        if user_id:
+            sp = await build_system_prompt(
+                base_prompt=CHAT_SYSTEM_PROMPT_STREAM,
+                user_id=user_id,
+                db=db,
+            )
+
         async for token in engine.stream(
             [{"role": "user", "content": req.message}],
             thread_id=tid,
+            system_prompt=sp,
         ):
             full_response += token
             yield f"data: {token}\n\n"
@@ -98,8 +188,15 @@ async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
         # Persist after streaming completes
         service = ChatService(db)
-        await service.save_message(tid, "user", req.message)
-        await service.save_message(tid, "assistant", full_response)
+        conv = await service.save_message(tid, "user", req.message, user_id=user_id)
+        await service.save_message(tid, "assistant", full_response, user_id=user_id)
+
+        # Schedule background memory extraction
+        if user_id and background_tasks:
+            background_tasks.add_task(
+                _extract_memories_background,
+                tid, conv.id, user_id, req.message, full_response,
+            )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
