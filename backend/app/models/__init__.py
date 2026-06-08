@@ -2,6 +2,7 @@
 from app.models.base import Base
 from app.models.user import User, Workspace, WorkspaceMember, UserRole
 from app.models.conversation import Conversation, Message
+from app.models.user_memory import UserMemory
 from app.models.knowledge import KnowledgeBase, Document, DocumentChunk
 
 __all__ = [
@@ -12,6 +13,7 @@ __all__ = [
     "UserRole",
     "Conversation",
     "Message",
+    "UserMemory",
     "KnowledgeBase",
     "Document",
     "DocumentChunk",

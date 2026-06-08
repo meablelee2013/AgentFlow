@@ -18,6 +18,10 @@ class Conversation(Base):
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), index=True, nullable=True
     )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), index=True, nullable=True,
+        comment="User identifier — client-side UUID (future: FK → users.id)"
+    )
     title: Mapped[str] = mapped_column(String(255), default="New Conversation")
     thread_id: Mapped[str] = mapped_column(
         String(64), unique=True, index=True, nullable=False

@@ -40,52 +40,15 @@ from langchain_core.runnables import RunnableConfig
 
 from app.config import settings
 from app.core.engine.checkpoint import CheckpointerManager
+from app.core.engine.prompts import (
+    SUPERVISOR_SYSTEM_PROMPT as DEFAULT_SUPERVISOR_PROMPT,
+    AGENT_PROMPTS as DEFAULT_AGENT_PROMPTS,
+)
 
 
 class SupervisorState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
     next: str
-
-
-# Sub-agent system prompts
-AGENT_PROMPTS = {
-    "researcher": (
-        "You are a Research Agent. Your job is to find, analyze, and summarize information. "
-        "When given a task: 1) Search for relevant facts and data. "
-        "2) Organize findings clearly with Markdown headers and bullet lists. "
-        "3) Cite sources when possible. "
-        "4) Be thorough but concise. Return your complete findings in one message."
-    ),
-    "coder": (
-        "You are a Code Agent. Your job is to write, explain, and debug code. "
-        "When given a task: 1) Write clean, well-commented code with type hints. "
-        "2) Explain your approach briefly before showing code. "
-        "3) Include error handling and edge cases. "
-        "4) Format all code in Markdown code blocks with language specifier. "
-        "Return the complete solution in one message."
-    ),
-    "reviewer": (
-        "You are a Review Agent. Your job is to evaluate and improve output. "
-        "When given content: 1) Check for accuracy, completeness, and clarity. "
-        "2) Point out issues constructively with specific suggestions. "
-        "3) Rate the output on a scale of 1-10. "
-        "4) If score < 7, explain what needs improvement. "
-        "If score >= 8, start your response with 'APPROVED:' to signal completion."
-    ),
-}
-
-SUPERVISOR_PROMPT = (
-    "You are a Supervisor Agent coordinating a team of specialists:\n"
-    "- **researcher**: finds and summarizes information from the web\n"
-    "- **coder**: writes and explains code\n"
-    "- **reviewer**: evaluates quality and suggests improvements\n\n"
-    "Given the user's request and the conversation so far, decide:\n"
-    "- Which agent should handle the NEXT step (if work remains)\n"
-    "- Or respond with FINISH if the task is complete\n\n"
-    "Always delegate to specialists. Never do their work yourself. "
-    "After each specialist responds, evaluate if the task needs another step.\n\n"
-    "Respond with ONLY one word: researcher, coder, reviewer, or FINISH"
-)
 
 
 class SupervisorEngine:
@@ -97,11 +60,25 @@ class SupervisorEngine:
     Usage:
         engine = SupervisorEngine()
         result = await engine.run([{"role": "user", "content": "Write a sorting function"}])
+
+    You can optionally pass custom prompts for the supervisor and agents,
+    which is used by the API layer to inject user memories:
+
+        engine = SupervisorEngine(
+            supervisor_prompt=custom_supervisor_with_memories,
+            agent_prompts={"researcher": ..., ...},
+        )
     """
 
     MAX_ITERATIONS = 8  # Prevent infinite loops
 
-    def __init__(self):
+    def __init__(
+        self,
+        supervisor_prompt: str | None = None,
+        agent_prompts: dict[str, str] | None = None,
+    ):
+        self.supervisor_prompt = supervisor_prompt or DEFAULT_SUPERVISOR_PROMPT
+        self.agent_prompts = agent_prompts or dict(DEFAULT_AGENT_PROMPTS)
         self._graph = self._build_graph()
         self._checkpointer = CheckpointerManager.get()
         self._app = self._graph.compile(checkpointer=self._checkpointer)
@@ -137,7 +114,7 @@ class SupervisorEngine:
                 model="deepseek-chat",
                 temperature=0.7,
             )
-            prompt = AGENT_PROMPTS[role]
+            prompt = self.agent_prompts.get(role, DEFAULT_AGENT_PROMPTS.get(role, ""))
             msgs = [SystemMessage(content=prompt)] + list(state["messages"])
             response = await llm.ainvoke(msgs)
             return {"messages": [response]}
@@ -152,7 +129,7 @@ class SupervisorEngine:
             temperature=0.3,  # Lower temp for routing decisions
         )
 
-        msgs = [SystemMessage(content=SUPERVISOR_PROMPT)] + list(state["messages"])
+        msgs = [SystemMessage(content=self.supervisor_prompt)] + list(state["messages"])
         response = await llm.ainvoke(msgs)
 
         decision = (response.content or "").strip().lower()

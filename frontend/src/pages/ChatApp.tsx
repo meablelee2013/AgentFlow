@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Plus, MessageSquare, RefreshCw } from "lucide-react";
+import { Plus, MessageSquare, RefreshCw, Brain } from "lucide-react";
 import { ChatWindow } from "../components/chat/ChatWindow";
+import { MemoryPanel } from "../components/memory/MemoryPanel";
 import { useChatStore } from "../stores/chat";
 import { api } from "../api/client";
 
@@ -15,6 +16,7 @@ export function ChatApp() {
   const [convs, setConvs] = useState<Conv[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(false);
   const [activeTid, setActiveTid] = useState<string | null>(threadId);
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
 
   const loadConvs = async () => {
     setLoadingConvs(true);
@@ -120,8 +122,22 @@ export function ChatApp() {
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-3 py-3 border-t border-border">
+        {/* Memory shortcut & footer */}
+        <div className="px-3 py-2 border-t border-border space-y-2">
+          <button
+            onClick={() => setMemoryPanelOpen(!memoryPanelOpen)}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors border ${
+              memoryPanelOpen
+                ? "bg-ink/5 text-ink border-ink/15"
+                : "text-ink/60 hover:text-ink hover:bg-gray-50 border-gray-200"
+            }`}
+          >
+            <Brain size={14} />
+            Memory
+            {memoryPanelOpen && (
+              <span className="ml-auto text-[10px] text-ink/40">open</span>
+            )}
+          </button>
           <p className="text-[10px] text-gray-400 font-mono text-center">
             {convs.length} conversation{convs.length !== 1 ? "s" : ""}
           </p>
@@ -132,6 +148,12 @@ export function ChatApp() {
       <div className="flex-1 min-w-0">
         <ChatWindow />
       </div>
+
+      {/* Memory Panel (fixed overlay managed by the component) */}
+      <MemoryPanel
+        open={memoryPanelOpen}
+        onClose={() => setMemoryPanelOpen(false)}
+      />
     </div>
   );
 }

@@ -1,9 +1,38 @@
 /** API client — typed wrapper around fetch for AgentFlow backend */
 const BASE = "/api/v1";
 
+// ── User identity ───────────────────────────────────────────────────
+// Client-side UUID persisted in localStorage — used to scope user memories.
+// Can be replaced with a real auth token when authentication is implemented.
+
+function getUserId(): string {
+  const key = "agentflow_user_id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+export function getMemoryEnabled(): boolean {
+  return localStorage.getItem("agentflow_memory_enabled") !== "false";
+}
+
+export function setMemoryEnabled(enabled: boolean): void {
+  localStorage.setItem("agentflow_memory_enabled", String(enabled));
+}
+
+function authHeaders(): Record<string, string> {
+  return {
+    "X-User-Id": getUserId(),
+    "X-Memory-Enabled": String(getMemoryEnabled()),
+  };
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...options?.headers },
     ...options,
   });
   if (!res.ok) {
@@ -35,6 +64,18 @@ export interface QueryResponse {
   chunks: { content: string; score: number; source: string }[];
 }
 
+export interface MemoryItem {
+  id: string;
+  category: string;
+  key: string;
+  content: string;
+  confidence: number;
+  is_active: boolean;
+  source_conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export const api = {
   // Chat
   chat: (message: string, threadId?: string) =>
@@ -52,7 +93,7 @@ export const api = {
     const controller = new AbortController();
     fetch(`${BASE}/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ message, thread_id: threadId }),
       signal: controller.signal,
     }).then(async (res) => {
@@ -111,4 +152,19 @@ export const api = {
     }),
 
   listBases: () => request<KnowledgeBaseItem[]>("/knowledge/bases"),
+
+  // User Memory
+  listMemories: () =>
+    request<{ memories: MemoryItem[]; total: number }>("/memory"),
+
+  deleteMemory: (memoryId: string) =>
+    request<{ ok: boolean; deleted: string }>(`/memory/${memoryId}`, {
+      method: "DELETE",
+    }),
+
+  clearMemories: () =>
+    request<{ ok: boolean; deleted: string }>("/memory", {
+      method: "DELETE",
+      body: JSON.stringify({ confirm: true }),
+    }),
 };

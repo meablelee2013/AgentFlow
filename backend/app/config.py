@@ -45,5 +45,10 @@ class Settings(BaseSettings):
     # --- Vector Storage ---
     VECTOR_DIMENSION: int = 384  # all-MiniLM-L6-v2 default
 
+    # --- Memory Extraction ---
+    MEMORY_EXTRACTION_ENABLED: bool = True
+    MEMORY_EXTRACTION_MAX_MESSAGES: int = 8  # how many recent messages to send to extraction LLM
+    MEMORY_EXTRACTION_MODEL: str = "deepseek-chat"  # model for extraction (can be cheaper)
+
 
 settings = Settings()

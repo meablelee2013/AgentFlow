@@ -42,6 +42,7 @@ from langchain_core.runnables import RunnableConfig
 
 from app.config import settings
 from app.core.engine.checkpoint import CheckpointerManager
+from app.core.engine.prompts import AGENT_SYSTEM_PROMPT
 from langchain_core.tools import BaseTool as LCTool
 
 
@@ -117,14 +118,10 @@ class AgentGraphEngine:
         # Bind LangChain tools directly — native function calling
         llm_with_tools = llm.bind_tools(self.tools)
 
-        # Insert system prompt if first message
+        # Insert system prompt if first message and none already present
         messages = list(state["messages"])
         if not any(isinstance(m, SystemMessage) for m in messages):
-            messages.insert(0, SystemMessage(content=(
-                "You are a helpful AI assistant with access to tools. "
-                "Use tools when you need to calculate, search, or fetch data. "
-                "Always format responses in Markdown. Be concise."
-            )))
+            messages.insert(0, SystemMessage(content=AGENT_SYSTEM_PROMPT))
 
         response = await llm_with_tools.ainvoke(messages)
         return {"messages": [response]}
@@ -156,14 +153,27 @@ class AgentGraphEngine:
     # ── Public API ─────────────────────────────────────────
 
     async def run(
-        self, messages: list[dict], thread_id: str | None = None
+        self,
+        messages: list[dict],
+        thread_id: str | None = None,
+        system_prompt: str | None = None,
     ) -> dict[str, Any]:
-        """Run agent with tool access."""
+        """Run agent with tool access.
+
+        Args:
+            messages: User messages to process
+            thread_id: Session ID, None creates new session
+            system_prompt: Optional override for the system prompt.
+                If provided, injected as the first message before the graph runs.
+                If None, _agent_node will inject AGENT_SYSTEM_PROMPT on first turn.
+        """
         is_new = thread_id is None
         tid = thread_id or str(uuid.uuid4())
         config: RunnableConfig = {"configurable": {"thread_id": tid}}
 
         input_messages = [HumanMessage(content=m["content"]) for m in messages]
+        if system_prompt:
+            input_messages.insert(0, SystemMessage(content=system_prompt))
         result = await self._app.ainvoke(
             {"messages": input_messages}, config=config
         )
@@ -175,12 +185,23 @@ class AgentGraphEngine:
         }
 
     async def stream(
-        self, messages: list[dict], thread_id: str | None = None
+        self,
+        messages: list[dict],
+        thread_id: str | None = None,
+        system_prompt: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        """Stream agent execution."""
+        """Stream agent execution.
+
+        Args:
+            messages: User messages to process
+            thread_id: Session ID, None creates new session
+            system_prompt: Optional override for the system prompt.
+        """
         tid = thread_id or str(uuid.uuid4())
         config: RunnableConfig = {"configurable": {"thread_id": tid}}
         input_messages = [HumanMessage(content=m["content"]) for m in messages]
+        if system_prompt:
+            input_messages.insert(0, SystemMessage(content=system_prompt))
 
         async for event in self._app.astream_events(
             {"messages": input_messages}, config=config, version="v2"
