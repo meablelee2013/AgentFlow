@@ -53,6 +53,18 @@ export interface QueryResponse {
   chunks: { content: string; score: number; source: string }[];
 }
 
+export interface MemoryItem {
+  id: string;
+  category: string;
+  key: string;
+  content: string;
+  confidence: number;
+  is_active: boolean;
+  source_conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export const api = {
   // Chat
   chat: (message: string, threadId?: string) =>
@@ -145,15 +157,3 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     }),
 };
-
-export interface MemoryItem {
-  id: string;
-  category: string;
-  key: string;
-  content: string;
-  confidence: number;
-  is_active: boolean;
-  source_conversation_id: string | null;
-  created_at: string;
-  updated_at: string;
-}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Trash2, Brain, ChevronRight, AlertTriangle } from "lucide-react";
-import { api, MemoryItem } from "../../api/client";
+import { api } from "../../api/client";
+import type { MemoryItem } from "../../api/client";
 
 interface Props {
   open: boolean;
@@ -197,6 +198,5 @@ export function MemoryPanel({ open, onClose }: Props) {
         )}
       </div>
     </>
-  );
   );
 }
