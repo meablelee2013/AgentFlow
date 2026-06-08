@@ -122,18 +122,21 @@ export function ChatApp() {
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-3 py-3 border-t border-border space-y-2">
+        {/* Memory shortcut & footer */}
+        <div className="px-3 py-2 border-t border-border space-y-2">
           <button
             onClick={() => setMemoryPanelOpen(!memoryPanelOpen)}
-            className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors border ${
               memoryPanelOpen
-                ? "bg-ink/5 text-ink"
-                : "text-gray-400 hover:text-ink/70 hover:bg-gray-50"
+                ? "bg-ink/5 text-ink border-ink/15"
+                : "text-ink/60 hover:text-ink hover:bg-gray-50 border-gray-200"
             }`}
           >
-            <Brain size={13} />
+            <Brain size={14} />
             Memory
+            {memoryPanelOpen && (
+              <span className="ml-auto text-[10px] text-ink/40">open</span>
+            )}
           </button>
           <p className="text-[10px] text-gray-400 font-mono text-center">
             {convs.length} conversation{convs.length !== 1 ? "s" : ""}
