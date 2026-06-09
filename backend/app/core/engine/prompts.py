@@ -1,4 +1,13 @@
-"""System prompts — extracted from engine code for reuse and extension"""
+"""System prompts — Phase 1: layered builder with legacy constants as fallback."""
+
+from app.core.engine.prompt.builder import PromptBuilder, PromptContext
+from app.core.engine.prompt.layers.identity import IdentityLayer
+from app.core.engine.prompt.layers.environment import EnvironmentLayer
+from app.core.engine.prompt.layers.tools import ToolsLayer
+from app.core.engine.prompt.layers.safety import SafetyLayer
+from app.core.engine.prompt.layers.output_format import OutputFormatLayer
+
+# ═══ Legacy constants — kept for backward compatibility ═══
 
 CHAT_SYSTEM_PROMPT = (
     "You are a helpful AI assistant. Always format your responses using Markdown "
@@ -59,3 +68,38 @@ AGENT_PROMPTS = {
         "If score >= 8, start your response with 'APPROVED:' to signal completion."
     ),
 }
+
+# ═══ Layered Prompt Builder (Phase 1) ═══
+
+_builder: PromptBuilder | None = None
+
+
+def get_prompt_builder() -> PromptBuilder:
+    """Get or create the singleton PromptBuilder with default layers.
+
+    Returns a builder pre-registered with 5 layers:
+      Layer 0: Identity
+      Layer 1: Environment
+      Layer 3: Tools
+      Layer 4: Safety
+      Layer 5: Output Format
+
+    Layer 2 (Memory) is handled separately via build_system_prompt() in chat/agent APIs.
+    """
+    global _builder
+    if _builder is None:
+        _builder = (
+            PromptBuilder()
+            .register(IdentityLayer())
+            .register(EnvironmentLayer())
+            .register(ToolsLayer())
+            .register(SafetyLayer())
+            .register(OutputFormatLayer())
+        )
+    return _builder
+
+
+def reset_prompt_builder() -> None:
+    """Reset builder for testing."""
+    global _builder
+    _builder = None

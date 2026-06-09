@@ -8,7 +8,10 @@ from sqlalchemy import select
 import structlog
 
 from app.core.engine.chat_engine import ChatGraphEngine
-from app.core.engine.prompts import CHAT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT_STREAM
+from app.core.engine.prompts import (
+    CHAT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT_STREAM,
+    get_prompt_builder, PromptContext,
+)
 from app.core.memory import build_system_prompt
 from app.core.memory.extractor import MemoryExtractor
 from app.api.v1.deps import get_db, AsyncSessionLocal
@@ -18,7 +21,13 @@ from app.models.conversation import Conversation as ConvModel
 logger = structlog.get_logger()
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-engine = ChatGraphEngine()
+_chat_engine: ChatGraphEngine | None = None
+
+def _get_chat_engine() -> ChatGraphEngine:
+    global _chat_engine
+    if _chat_engine is None:
+        _chat_engine = ChatGraphEngine()
+    return _chat_engine
 extractor = MemoryExtractor()
 
 
@@ -133,14 +142,20 @@ async def chat(
     memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message — synchronous full response"""
-    # Build system prompt with user memories
-    sp = await build_system_prompt(
-        base_prompt=CHAT_SYSTEM_PROMPT,
-        user_id=user_id,
-        db=db,
-    ) if user_id else CHAT_SYSTEM_PROMPT
+    # Build layered system prompt (Phase 1: 5 layers + optional memory)
+    builder = get_prompt_builder()
+    ctx = PromptContext()
+    sp = await builder.build(ctx)
+    if user_id:
+        memory_ctx = await build_system_prompt(
+            base_prompt="", user_id=user_id, db=db,
+        )
+        if memory_ctx.strip():
+            sp = sp + "\n\n" + memory_ctx
+    if not sp.strip():
+        sp = CHAT_SYSTEM_PROMPT  # fallback
 
-    result = await engine.run(
+    result = await _get_chat_engine().run(
         [{"role": "user", "content": req.message}],
         thread_id=req.thread_id,
         system_prompt=sp,
@@ -182,16 +197,20 @@ async def chat_stream(
         # Send thread_id as first event
         yield f"data: [THREAD:{tid}]\n\n"
 
-        # Build system prompt with user memories (inside generator to use db)
-        sp = CHAT_SYSTEM_PROMPT_STREAM
+        # Build layered system prompt (Phase 1: 5 layers + optional memory)
+        builder = get_prompt_builder()
+        ctx = PromptContext()
+        sp = await builder.build(ctx)
         if user_id:
-            sp = await build_system_prompt(
-                base_prompt=CHAT_SYSTEM_PROMPT_STREAM,
-                user_id=user_id,
-                db=db,
+            memory_ctx = await build_system_prompt(
+                base_prompt="", user_id=user_id, db=db,
             )
+            if memory_ctx.strip():
+                sp = sp + "\n\n" + memory_ctx
+        if not sp.strip():
+            sp = CHAT_SYSTEM_PROMPT_STREAM
 
-        async for token in engine.stream(
+        async for token in _get_chat_engine().stream(
             [{"role": "user", "content": req.message}],
             thread_id=tid,
             system_prompt=sp,
@@ -223,6 +242,6 @@ async def get_history(thread_id: str, db: AsyncSession = Depends(get_db)):
 
     # Fallback to LangGraph MemorySaver if DB has no records yet
     if not messages:
-        messages = await engine.get_history(thread_id)
+        messages = await _get_chat_engine().get_history(thread_id)
 
     return HistoryResponse(thread_id=thread_id, messages=messages)
