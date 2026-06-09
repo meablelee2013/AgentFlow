@@ -12,7 +12,6 @@ from app.core.engine.prompts import (
     CHAT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT_STREAM,
     get_prompt_builder, PromptContext,
 )
-from app.core.memory import build_system_prompt
 from app.core.memory.extractor import MemoryExtractor
 from app.api.v1.deps import get_db, AsyncSessionLocal
 from app.services.chat_service import ChatService
@@ -142,16 +141,13 @@ async def chat(
     memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message — synchronous full response"""
-    # Build layered system prompt (Phase 1: 5 layers + optional memory)
     builder = get_prompt_builder()
-    ctx = PromptContext()
+    ctx = PromptContext(
+        user_id=str(user_id) if user_id else None,
+        memory_enabled=memory_enabled,
+        db=db,
+    )
     sp = await builder.build(ctx)
-    if user_id:
-        memory_ctx = await build_system_prompt(
-            base_prompt="", user_id=user_id, db=db,
-        )
-        if memory_ctx.strip():
-            sp = sp + "\n\n" + memory_ctx
     if not sp.strip():
         sp = CHAT_SYSTEM_PROMPT  # fallback
 
@@ -197,16 +193,13 @@ async def chat_stream(
         # Send thread_id as first event
         yield f"data: [THREAD:{tid}]\n\n"
 
-        # Build layered system prompt (Phase 1: 5 layers + optional memory)
         builder = get_prompt_builder()
-        ctx = PromptContext()
+        ctx = PromptContext(
+            user_id=str(user_id) if user_id else None,
+            memory_enabled=memory_enabled,
+            db=db,
+        )
         sp = await builder.build(ctx)
-        if user_id:
-            memory_ctx = await build_system_prompt(
-                base_prompt="", user_id=user_id, db=db,
-            )
-            if memory_ctx.strip():
-                sp = sp + "\n\n" + memory_ctx
         if not sp.strip():
             sp = CHAT_SYSTEM_PROMPT_STREAM
 

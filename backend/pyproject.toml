@@ -36,6 +36,7 @@ dependencies = [
     "tavily-python>=0.7.25",
     "uvicorn>=0.49.0",
     "psycopg[binary]>=3.3.4",
+    "tiktoken>=0.13.0",
 ]
 
 [dependency-groups]

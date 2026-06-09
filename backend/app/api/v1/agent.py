@@ -8,7 +8,6 @@ import uuid
 
 from app.core.engine.agent_engine import AgentGraphEngine
 from app.core.engine.prompts import AGENT_SYSTEM_PROMPT, get_prompt_builder, PromptContext
-from app.core.memory import build_system_prompt
 from app.core.memory.extractor import MemoryExtractor
 from app.core.tool.registry import ToolRegistry
 from app.api.v1.deps import get_db, AsyncSessionLocal
@@ -104,16 +103,13 @@ async def agent_chat(
     memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message to agent with tool access — synchronous."""
-    # Build layered system prompt (Phase 1: 5 layers + optional memory)
     builder = get_prompt_builder()
-    ctx = PromptContext()
+    ctx = PromptContext(
+        user_id=str(user_id) if user_id else None,
+        memory_enabled=memory_enabled,
+        db=db,
+    )
     sp = await builder.build(ctx)
-    if user_id:
-        memory_ctx = await build_system_prompt(
-            base_prompt="", user_id=user_id, db=db,
-        )
-        if memory_ctx.strip():
-            sp = sp + "\n\n" + memory_ctx
     if not sp.strip():
         sp = AGENT_SYSTEM_PROMPT  # fallback
 
@@ -151,13 +147,15 @@ async def agent_stream(
         full_response = ""
         yield f"data: [THREAD:{tid}]\n\n"
 
-        sp = AGENT_SYSTEM_PROMPT
-        if user_id:
-            sp = await build_system_prompt(
-                base_prompt=AGENT_SYSTEM_PROMPT,
-                user_id=user_id,
-                db=db,
-            )
+        builder = get_prompt_builder()
+        ctx = PromptContext(
+            user_id=str(user_id) if user_id else None,
+            memory_enabled=memory_enabled,
+            db=db,
+        )
+        sp = await builder.build(ctx)
+        if not sp.strip():
+            sp = AGENT_SYSTEM_PROMPT
 
         async for token in _get_agent_engine().stream(
             [{"role": "user", "content": req.message}],
