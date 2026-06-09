@@ -158,7 +158,15 @@ class AgentGraphEngine:
         thread_id: str | None = None,
         system_prompt: str | None = None,
     ) -> dict[str, Any]:
-        """Run agent with tool access."""
+        """Run agent with tool access.
+
+        Args:
+            messages: User messages to process
+            thread_id: Session ID, None creates new session
+            system_prompt: Optional override for the system prompt.
+                If provided, injected as the first message before the graph runs.
+                If None, _agent_node will inject AGENT_SYSTEM_PROMPT on first turn.
+        """
         is_new = thread_id is None
         tid = thread_id or str(uuid.uuid4())
         config: RunnableConfig = {"configurable": {"thread_id": tid}}
@@ -182,7 +190,13 @@ class AgentGraphEngine:
         thread_id: str | None = None,
         system_prompt: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        """Stream agent execution."""
+        """Stream agent execution.
+
+        Args:
+            messages: User messages to process
+            thread_id: Session ID, None creates new session
+            system_prompt: Optional override for the system prompt.
+        """
         tid = thread_id or str(uuid.uuid4())
         config: RunnableConfig = {"configurable": {"thread_id": tid}}
         input_messages = [HumanMessage(content=m["content"]) for m in messages]
