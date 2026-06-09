@@ -1,17 +1,24 @@
-import { useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useChatStore } from "../../stores/chat";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
+import { renderMarkdown } from "../../utils/renderMarkdown";
 
 export function ChatWindow() {
   const { messages, loading, streaming, send } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const streamingRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
+
+  // Directly update innerHTML for streaming content to avoid React reconciliation issues
+  useLayoutEffect(() => {
+    if (streamingRef.current) {
+      streamingRef.current.innerHTML = renderMarkdown(streaming);
+    }
+  }, [streaming]);
 
   return (
     <div className="flex flex-col h-full bg-warm">
@@ -69,7 +76,9 @@ export function ChatWindow() {
                 <span className="text-[10px] font-mono text-ink/50 font-semibold">AI</span>
               </div>
               <div className="max-w-[72%]">
-                <div className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm max-w-none
+                <div
+                  ref={streamingRef}
+                  className="inline-block px-4 py-2.5 text-[14px] leading-relaxed bg-white border border-border text-ink/85 rounded-2xl rounded-tl-sm shadow-sm max-w-none
                   [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-2
                   [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1.5
                   [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
@@ -80,12 +89,9 @@ export function ChatWindow() {
                   [&_pre]:bg-[#1a1a1a] [&_pre]:text-[#e8e5e0] [&_pre]:p-3.5 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_pre]:my-2 [&_pre]:text-[0.85em]
                   [&_pre_code]:bg-transparent [&_pre_code]:text-inherit [&_pre_code]:p-0
                   [&_blockquote]:border-l-[3px] [&_blockquote]:border-[#d4d0c8] [&_blockquote]:pl-3.5 [&_blockquote]:my-2 [&_blockquote]:text-gray-500
-                  [&_a]:text-blue-600 [&_a]:underline [&_strong]:font-semibold">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {streaming}
-                  </ReactMarkdown>
-                  <span className="inline-block w-[2px] h-[1em] bg-accent ml-0.5 align-text-bottom animate-pulse" />
-                </div>
+                  [&_a]:text-blue-600 [&_a]:underline [&_strong]:font-semibold"
+                />
+                <span className="inline-block w-[2px] h-[1em] bg-accent ml-0.5 align-text-bottom animate-pulse" />
               </div>
             </div>
           )}

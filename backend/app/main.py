@@ -23,7 +23,10 @@ logger = structlog.get_logger()
 async def lifespan(app: FastAPI):
     """Resource management on startup/shutdown"""
     logger.info("AgentFlow starting", version=settings.APP_VERSION)
+    from app.core.engine.checkpoint import CheckpointerManager
+    CheckpointerManager.init_postgres()
     yield
+    CheckpointerManager.shutdown()
     logger.info("AgentFlow shutting down")
 
 

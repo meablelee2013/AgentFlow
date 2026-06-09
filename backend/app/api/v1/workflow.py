@@ -110,6 +110,7 @@ async def execute_workflow(wf_id: str, req: ExecuteRequest):
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     checkpointer = CheckpointerManager.get()
+    # Checkpointer is already PG-backed thanks to lifespan ensure_postgres()
     app = compiler.compile(wf, checkpointer=checkpointer)
 
     from langchain_core.messages import HumanMessage

@@ -7,7 +7,7 @@ import structlog
 import uuid
 
 from app.core.engine.agent_engine import AgentGraphEngine
-from app.core.engine.prompts import AGENT_SYSTEM_PROMPT
+from app.core.engine.prompts import AGENT_SYSTEM_PROMPT, get_prompt_builder, PromptContext
 from app.core.memory import build_system_prompt
 from app.core.memory.extractor import MemoryExtractor
 from app.core.tool.registry import ToolRegistry
@@ -17,7 +17,14 @@ from app.services.chat_service import ChatService
 logger = structlog.get_logger()
 router = APIRouter(prefix="/agent", tags=["agent"])
 
-agent_engine = AgentGraphEngine()
+_agent_engine: AgentGraphEngine | None = None
+
+def _get_agent_engine() -> AgentGraphEngine:
+    """Lazy-init: ensures engine picks up PG checkpointer after startup."""
+    global _agent_engine
+    if _agent_engine is None:
+        _agent_engine = AgentGraphEngine()
+    return _agent_engine
 extractor = MemoryExtractor()
 
 
@@ -97,13 +104,20 @@ async def agent_chat(
     memory_enabled: bool = Depends(_parse_memory_enabled),
 ):
     """Send message to agent with tool access — synchronous."""
-    sp = await build_system_prompt(
-        base_prompt=AGENT_SYSTEM_PROMPT,
-        user_id=user_id,
-        db=db,
-    ) if user_id else AGENT_SYSTEM_PROMPT
+    # Build layered system prompt (Phase 1: 5 layers + optional memory)
+    builder = get_prompt_builder()
+    ctx = PromptContext()
+    sp = await builder.build(ctx)
+    if user_id:
+        memory_ctx = await build_system_prompt(
+            base_prompt="", user_id=user_id, db=db,
+        )
+        if memory_ctx.strip():
+            sp = sp + "\n\n" + memory_ctx
+    if not sp.strip():
+        sp = AGENT_SYSTEM_PROMPT  # fallback
 
-    result = await agent_engine.run(
+    result = await _get_agent_engine().run(
         [{"role": "user", "content": req.message}],
         thread_id=req.thread_id,
         system_prompt=sp,
@@ -145,7 +159,7 @@ async def agent_stream(
                 db=db,
             )
 
-        async for token in agent_engine.stream(
+        async for token in _get_agent_engine().stream(
             [{"role": "user", "content": req.message}],
             thread_id=tid,
             system_prompt=sp,
@@ -171,5 +185,5 @@ async def list_tools():
     """List all available agent tools."""
     return [
         ToolInfo(name=t.name, description=t.description)
-        for t in agent_engine.tools
+        for t in _get_agent_engine().tools
     ]

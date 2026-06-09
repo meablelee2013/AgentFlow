@@ -154,25 +154,13 @@ class ChatGraphEngine:
         thread_id: str | None = None,
         system_prompt: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        """Stream conversation, push SSE events token by token
-
-        Usage (FastAPI):
-            async def chat_stream():
-                async for token in engine.stream(messages):
-                    yield f"data: {token}\n\n"
-            return StreamingResponse(chat_stream(), media_type="text/event-stream")
-        """
+        """Stream conversation."""
         tid = thread_id or str(uuid.uuid4())
-
-        config: RunnableConfig = {
-            "configurable": {"thread_id": tid}
-        }
-
+        config: RunnableConfig = {"configurable": {"thread_id": tid}}
         input_messages = [HumanMessage(content=m["content"]) for m in messages] if messages else []
         input_messages.insert(0, SystemMessage(content=system_prompt or CHAT_SYSTEM_PROMPT_STREAM))
         input_state = {"messages": input_messages}
 
-        # streaming output — astream_events captures each token
         async for event in self._app.astream_events(input_state, config=config, version="v2"):
             kind = event["event"]
             if kind == "on_chat_model_stream":
