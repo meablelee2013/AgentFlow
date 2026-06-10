@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { MessageSquare, Database, Workflow, Hexagon } from "lucide-react";
+import { MessageSquare, Database, Workflow, Hexagon, GitFork } from "lucide-react";
 
 interface Props {
   collapsed: boolean;
@@ -12,6 +12,7 @@ const navItems: { to: string; icon: typeof Hexagon; label: string }[] = [
   { to: "/chat", icon: MessageSquare, label: "Chat" },
   { to: "/knowledge", icon: Database, label: "Knowledge Base" },
   { to: "/workflow", icon: Workflow, label: "Workflow" },
+  { to: "/decompose-test", icon: GitFork, label: "Decompose Test" },
 ];
 
 export function Sidebar({ collapsed, width, onToggle }: Props) {

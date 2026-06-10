@@ -4,6 +4,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { ChatApp } from "./pages/ChatApp";
 import { KnowledgeBase } from "./pages/KnowledgeBase";
 import { WorkflowEditor } from "./pages/WorkflowEditor";
+import { DecomposeTestChat } from "./pages/DecomposeTestChat";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="/chat" element={<ChatApp />} />
             <Route path="/knowledge" element={<KnowledgeBase />} />
             <Route path="/workflow" element={<WorkflowEditor />} />
+            <Route path="/decompose-test" element={<DecomposeTestChat />} />
           </Routes>
         </main>
       </div>
