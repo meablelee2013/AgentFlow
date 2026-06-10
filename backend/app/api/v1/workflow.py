@@ -129,4 +129,15 @@ async def execute_workflow(wf_id: str, req: ExecuteRequest):
     # Include node_outputs in response for debugging/introspection
     node_outputs = result.get("node_outputs", {})
 
-    return {"output": reply, "node_outputs": node_outputs}
+    # Include execution_trace if the workflow used task decomposition
+    execution_trace = result.get("execution_trace", None)
+    decomposed_tasks = result.get("decomposed_tasks", [])
+    subtask_results = result.get("subtask_results", {})
+
+    return {
+        "output": reply,
+        "node_outputs": node_outputs,
+        "execution_trace": execution_trace,
+        "decomposed_tasks": decomposed_tasks,
+        "subtask_results": subtask_results,
+    }

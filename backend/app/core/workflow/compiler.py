@@ -260,6 +260,110 @@ class WorkflowCompiler:
         async def pass_func(state: ChatState) -> dict:
             return {}
 
+        # ── Task Decomposition handlers ─────────────────────
+
+        async def decompose_func(state: ChatState) -> dict:
+            """Decompose node: LLM breaks goal into subtasks → fan-out → collect."""
+            from app.core.workflow.nodes.decompose import DecomposeExecutor
+            from app.core.workflow.fanout import execute_fanout
+
+            # Resolve inputs to get the user's goal
+            args = resolve_inputs(node_inputs, state)
+            goal = args.get("query", args.get("task", ""))
+            if not goal and state.get("messages"):
+                goal = state["messages"][-1].content if state["messages"] else ""
+
+            if not goal:
+                return {
+                    "messages": [AIMessage(content="Decompose error: no input goal provided")],
+                    "node_outputs": {node_id: {"error": "No goal provided"}},
+                }
+
+            enabled_caps = node_data.get("enabled_capabilities", [])
+            if not enabled_caps:
+                # Default: use all builtin capabilities
+                from app.core.workflow.capability_registry import get_capability_registry
+                registry = get_capability_registry()
+                enabled_caps = [c.id for c in registry.list_builtin()]
+
+            custom_prompt = node_data.get("system_prompt", "")
+            max_subtasks = node_data.get("max_subtasks", 10)
+
+            try:
+                executor = DecomposeExecutor()
+                subtasks = await executor.decompose(
+                    goal=goal,
+                    enabled_capabilities=enabled_caps,
+                    custom_prompt=custom_prompt,
+                    max_subtasks=max_subtasks,
+                )
+
+                # Fan-out: execute all subtasks in parallel
+                results = await execute_fanout(subtasks, state)
+
+                completed = sum(1 for r in results.values() if r.status == "completed")
+                failed = sum(1 for r in results.values() if r.status == "failed")
+
+                return {
+                    "decomposed_tasks": [st.model_dump() for st in subtasks],
+                    "subtask_results": {
+                        st_id: st.model_dump() for st_id, st in results.items()
+                    },
+                    "messages": [
+                        AIMessage(content=f"Decomposed into {len(subtasks)} subtasks. "
+                                          f"Completed: {completed}, Failed: {failed}")
+                    ],
+                }
+            except Exception as e:
+                return {
+                    "decomposed_tasks": [],
+                    "subtask_results": {},
+                    "messages": [AIMessage(content=f"Decompose error: {e}")],
+                    "node_outputs": {node_id: {"error": str(e)}},
+                }
+
+        async def aggregate_func(state: ChatState) -> dict:
+            """Aggregate node: collect subtask results → LLM synthesis."""
+            from app.core.workflow.nodes.aggregate import AggregateExecutor
+            from app.core.workflow.schema import SubTask
+
+            # Resolve inputs
+            args = resolve_inputs(node_inputs, state)
+            goal = args.get("query", args.get("task", ""))
+            if not goal and state.get("messages"):
+                goal = state["messages"][0].content if state["messages"] else ""
+
+            # Get subtask results from state
+            raw_results = state.get("subtask_results", {})
+            subtask_results: dict[str, SubTask] = {}
+            for st_id, st_dict in raw_results.items():
+                try:
+                    subtask_results[st_id] = SubTask(**st_dict)
+                except Exception:
+                    pass
+
+            if not subtask_results:
+                return {
+                    "messages": [AIMessage(content="Aggregate: no subtask results to synthesize")],
+                    "execution_trace": None,
+                }
+
+            try:
+                aggregator = AggregateExecutor()
+                result = await aggregator.aggregate(
+                    goal=goal,
+                    subtask_results=subtask_results,
+                    node_data=node_data,
+                )
+                return result
+            except Exception as e:
+                error_msg = f"Aggregate error: {e}"
+                return {
+                    "messages": [AIMessage(content=error_msg)],
+                    "execution_trace": {"error": str(e)},
+                    "aggregated_output": error_msg,
+                }
+
         # ── Handler dispatch ───────────────────────────────────
 
         handlers = {
@@ -272,6 +376,8 @@ class WorkflowCompiler:
             "http_api": http_api_func,
             "database": database_func,
             "code": code_func,
+            "decompose": decompose_func,
+            "aggregate": aggregate_func,
             "end": pass_func,
             "condition": pass_func,
             "loop": pass_func,

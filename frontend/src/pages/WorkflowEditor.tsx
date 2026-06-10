@@ -8,7 +8,8 @@ import {
 import type { Connection, Node, Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Save, Play, MessageSquare, Database, Wrench,
-         GitBranch, Repeat, UserCheck, Plus, ArrowLeft, Workflow, Globe } from "lucide-react";
+         GitBranch, Repeat, UserCheck, Plus, ArrowLeft, Workflow, Globe,
+         GitFork, BarChart3 } from "lucide-react";
 import { ConfigDrawer } from "../components/workflow/ConfigDrawer";
 
 // ── Error Boundary ──────────────────────────────────────
@@ -49,6 +50,8 @@ const NODE_PALETTE = [
   { type: "condition", label: "Condition", icon: GitBranch, color: "#ef4444" },
   { type: "loop", label: "Loop", icon: Repeat, color: "#06b6d4" },
   { type: "hitl", label: "HITL", icon: UserCheck, color: "#10b981" },
+  { type: "decompose", label: "Decompose", icon: GitFork, color: "#f59e0b" },
+  { type: "aggregate", label: "Aggregate", icon: BarChart3, color: "#22c55e" },
 ];
 
 const START_NODE: Node = {
@@ -66,6 +69,7 @@ function CustomNode({ id, data, type }: { id: string; data: Record<string, unkno
     chat: "Chat", rag: "RAG", search: "Web Search", tool: "Tool",
     http_api: "API Call",
     condition: "Condition", loop: "Loop", hitl: "HITL",
+    decompose: "Decompose", aggregate: "Aggregate",
   };
   const colors: Record<string, string> = {
     chat: "border-blue-400 bg-blue-50", rag: "border-violet-400 bg-violet-50",
@@ -73,6 +77,8 @@ function CustomNode({ id, data, type }: { id: string; data: Record<string, unkno
     http_api: "border-sky-400 bg-sky-50",
     condition: "border-red-400 bg-red-50", loop: "border-cyan-400 bg-cyan-50",
     hitl: "border-emerald-400 bg-emerald-50",
+    decompose: "border-amber-400 bg-amber-50",
+    aggregate: "border-emerald-400 bg-emerald-50",
   };
   const onAdd = data?.onAddNode as ((sourceId: string, nodeType: string) => void) | undefined;
 
@@ -291,6 +297,19 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
           approval_message: n.data?.approval_message || "",
         });
       }
+      if (nodeType === "decompose") {
+        Object.assign(data, {
+          enabled_capabilities: n.data?.enabled_capabilities || [],
+          system_prompt: n.data?.system_prompt || "",
+          max_subtasks: n.data?.max_subtasks || 10,
+        });
+      }
+      if (nodeType === "aggregate") {
+        Object.assign(data, {
+          summary_prompt: n.data?.summary_prompt || "",
+          failure_mode: n.data?.failure_mode || "partial",
+        });
+      }
       return { id: n.id, type: nodeType, position: n.position, data };
     }),
     edges: edges.map((e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle })),
@@ -325,6 +344,8 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
     condition: (p: any) => <CustomNode {...p} type="condition" />,
     loop: (p: any) => <CustomNode {...p} type="loop" />,
     hitl: (p: any) => <CustomNode {...p} type="hitl" />,
+    decompose: (p: any) => <CustomNode {...p} type="decompose" />,
+    aggregate: (p: any) => <CustomNode {...p} type="aggregate" />,
   };
 
   // Handle node click — open config drawer for configurable nodes

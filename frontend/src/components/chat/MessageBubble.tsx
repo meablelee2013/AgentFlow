@@ -12,7 +12,7 @@ interface Props {
 export function MessageBubble({ id, role, content }: Props) {
   const isUser = role === "user";
   const [copied, setCopied] = useState(false);
-  const { editMessage } = useChatStore();
+  const { /* editMessage */ } = useChatStore();
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
