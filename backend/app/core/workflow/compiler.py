@@ -10,6 +10,13 @@ Compilation steps:
     4. Set finish points (last nodes → END)
     5. Compile with Checkpointer
 
+Data flow (Coze-style):
+    Each node:
+      1. Resolve declared `inputs` from upstream `node_outputs` → args dict
+      2. Call type-specific handler(args, config, state)
+      3. Handler returns a dict of structured output
+      4. Write to node_outputs[node_id] + append AIMessage summary
+
 ```mermaid
 flowchart LR
     A[Workflow JSON] --> B[Parser: Schema Validation]
@@ -27,6 +34,7 @@ from langchain_openai import ChatOpenAI
 
 from app.config import settings
 from app.core.workflow.schema import WorkflowDefinition, WorkflowNode
+from app.core.workflow.template import resolve_inputs
 from app.core.engine.chat_engine import ChatState
 
 
@@ -83,61 +91,187 @@ class WorkflowCompiler:
         return graph.compile(checkpointer=checkpointer)
 
     def _make_node_func(self, node: WorkflowNode):
-        """Create a LangGraph node function from a workflow node definition."""
+        """Create a LangGraph node function from a workflow node definition.
+
+        Each node function:
+          1. Resolves declared inputs from upstream node_outputs → args
+          2. Calls the type-specific handler
+          3. Writes output to node_outputs[node_id]
+          4. Appends an AIMessage summary for LLM context
+        """
         node_id = node.id
         node_type = node.type
+        node_inputs = node.inputs
+        node_data = node.data
+
+        # ── Node handlers ──────────────────────────────────────
+
+        async def start_func(state: ChatState) -> dict:
+            """Start node — map user input into node_outputs."""
+            last_msg = state["messages"][-1].content if state["messages"] else ""
+            output_name = node_data.get("output_name", "query")
+            output = {output_name: last_msg}
+
+            # If start node defines input_params, try to parse structured input
+            if node_data.get("input_params"):
+                output["params"] = node_data["input_params"]
+
+            return {
+                "node_outputs": {node_id: output},
+                "messages": [],
+            }
 
         async def chat_func(state: ChatState) -> dict:
+            args = resolve_inputs(node_inputs, state)
             llm = ChatOpenAI(
                 base_url=settings.DEEPSEEK_BASE_URL,
                 api_key=settings.DEEPSEEK_API_KEY,
                 model="deepseek-chat", temperature=0.7,
             )
-            prompt = node.data.get("system_prompt", "")
+            prompt = node_data.get("system_prompt", "")
             msgs = list(state["messages"])
             if prompt:
                 from langchain_core.messages import SystemMessage
                 msgs.insert(0, SystemMessage(content=prompt))
+
+            # Inject resolved args as context if any
+            if args:
+                import json
+                args_context = f"\n\nContext from previous nodes:\n{json.dumps(args, ensure_ascii=False, default=str)}"
+                msgs.append(HumanMessage(content=args_context))
+
             response = await llm.ainvoke(msgs)
-            return {"messages": [response]}
+            return {
+                "node_outputs": {node_id: {"content": response.content}},
+                "messages": [response],
+            }
 
         async def rag_func(state: ChatState) -> dict:
-            kb_id = node.data.get("knowledge_base_id", "")
-            last_msg = state["messages"][-1].content if state["messages"] else ""
-            result = f"[RAG search in KB {kb_id[:8]}...]: results for '{last_msg[:50]}...'"
-            return {"messages": [AIMessage(content=result)]}
+            args = resolve_inputs(node_inputs, state)
+            kb_id = node_data.get("knowledge_base_id", "")
+            query = args.get("query", state["messages"][-1].content if state["messages"] else "")
+            result_text = f"[RAG search in KB {kb_id[:8]}...]: results for '{query[:50]}...'"
+            return {
+                "node_outputs": {node_id: {"documents": [], "kb_id": kb_id, "query": query}},
+                "messages": [AIMessage(content=result_text)],
+            }
 
         async def tool_func(state: ChatState) -> dict:
-            tool_name = node.data.get("tool_name", "")
-            return {"messages": [AIMessage(content=f"[Tool: {tool_name} executed]")]}
+            args = resolve_inputs(node_inputs, state)
+            tool_name = node_data.get("tool_name", "")
+            result_text = f"[Tool: {tool_name} executed]"
+            return {
+                "node_outputs": {node_id: {"tool_name": tool_name, "result": result_text}},
+                "messages": [AIMessage(content=result_text)],
+            }
 
         async def hitl_func(state: ChatState) -> dict:
-            msg = node.data.get("approval_message", "Approve?")
-            return {"messages": [AIMessage(content=f"[HITL: {msg} — awaiting approval]")]}
+            args = resolve_inputs(node_inputs, state)
+            msg = node_data.get("approval_message", "Approve?")
+            result_text = f"[HITL: {msg} — awaiting approval]"
+            return {
+                "node_outputs": {node_id: {"status": "awaiting_approval", "message": msg}},
+                "messages": [AIMessage(content=result_text)],
+            }
 
         async def search_func(state: ChatState) -> dict:
             """Execute web search and return results."""
+            args = resolve_inputs(node_inputs, state)
             from app.core.tool.builtins.search_backends import get_search_backend
-            last_msg = state["messages"][-1].content if state["messages"] else ""
+            query = args.get("query", state["messages"][-1].content if state["messages"] else "")
             backend = get_search_backend()
-            results = await backend.search(last_msg, max_results=5)
+            results = await backend.search(query, max_results=5)
+
             if not results:
-                return {"messages": [AIMessage(content=f"No results found for '{last_msg[:100]}...'")]}
-            lines = [f"Web search results for '{last_msg[:100]}...' (via {backend.name}):\n"]
+                result_text = f"No results found for '{query[:100]}...'"
+                return {
+                    "node_outputs": {node_id: {"results": [], "query": query, "backend": backend.name}},
+                    "messages": [AIMessage(content=result_text)],
+                }
+
+            lines = [f"Web search results for '{query[:100]}...' (via {backend.name}):\n"]
+            search_data = []
             for i, r in enumerate(results):
                 lines.append(f"{i + 1}. {r.to_llm_text()}")
-            return {"messages": [AIMessage(content="\n\n".join(lines))]}
+                search_data.append({"title": r.title, "url": r.url, "snippet": r.snippet})
+
+            return {
+                "node_outputs": {node_id: {"results": search_data, "query": query, "backend": backend.name}},
+                "messages": [AIMessage(content="\n\n".join(lines))],
+            }
+
+        # ── New business connector nodes ──────────────────────
+
+        async def http_api_func(state: ChatState) -> dict:
+            """HTTP API node — call external APIs with authentication."""
+            from app.core.workflow.nodes.http_api import http_api_handler
+            args = resolve_inputs(node_inputs, state)
+            try:
+                output = await http_api_handler(args, node_data, state)
+                summary = f"HTTP {output.get('status', '?')} from {node_data.get('url', '?')}"
+                return {
+                    "node_outputs": {node_id: output},
+                    "messages": [AIMessage(content=summary)],
+                }
+            except Exception as e:
+                error_output = {"error": str(e), "status": None}
+                return {
+                    "node_outputs": {node_id: error_output},
+                    "messages": [AIMessage(content=f"HTTP API error: {e}")],
+                }
+
+        async def database_func(state: ChatState) -> dict:
+            """Database node — query PostgreSQL / MySQL."""
+            from app.core.workflow.nodes.database import database_handler
+            args = resolve_inputs(node_inputs, state)
+            try:
+                output = await database_handler(args, node_data, state)
+                row_count = output.get("row_count", 0)
+                summary = f"Database query returned {row_count} rows"
+                return {
+                    "node_outputs": {node_id: output},
+                    "messages": [AIMessage(content=summary)],
+                }
+            except Exception as e:
+                error_output = {"error": str(e), "row_count": 0}
+                return {
+                    "node_outputs": {node_id: error_output},
+                    "messages": [AIMessage(content=f"Database error: {e}")],
+                }
+
+        async def code_func(state: ChatState) -> dict:
+            """Code node — execute Python in Docker sandbox."""
+            from app.core.workflow.nodes.code import code_handler
+            args = resolve_inputs(node_inputs, state)
+            try:
+                output = await code_handler(args, node_data, state)
+                summary = "Code executed successfully"
+                return {
+                    "node_outputs": {node_id: output},
+                    "messages": [AIMessage(content=summary)],
+                }
+            except Exception as e:
+                error_output = {"error": str(e)}
+                return {
+                    "node_outputs": {node_id: error_output},
+                    "messages": [AIMessage(content=f"Code execution error: {e}")],
+                }
 
         async def pass_func(state: ChatState) -> dict:
             return {}
 
+        # ── Handler dispatch ───────────────────────────────────
+
         handlers = {
+            "start": start_func,
             "chat": chat_func,
             "search": search_func,
             "rag": rag_func,
             "tool": tool_func,
             "hitl": hitl_func,
-            "start": pass_func,
+            "http_api": http_api_func,
+            "database": database_func,
+            "code": code_func,
             "end": pass_func,
             "condition": pass_func,
             "loop": pass_func,

@@ -4,6 +4,7 @@ from app.core.engine.prompt.builder import PromptBuilder, PromptContext
 from app.core.engine.prompt.layers.identity import IdentityLayer
 from app.core.engine.prompt.layers.environment import EnvironmentLayer
 from app.core.engine.prompt.layers.tools import ToolsLayer
+from app.core.engine.prompt.layers.memory import MemoryLayer
 from app.core.engine.prompt.layers.safety import SafetyLayer
 from app.core.engine.prompt.layers.output_format import OutputFormatLayer
 
@@ -75,16 +76,15 @@ _builder: PromptBuilder | None = None
 
 
 def get_prompt_builder() -> PromptBuilder:
-    """Get or create the singleton PromptBuilder with default layers.
+    """Get or create the singleton PromptBuilder with all 6 layers.
 
-    Returns a builder pre-registered with 5 layers:
-      Layer 0: Identity
-      Layer 1: Environment
-      Layer 3: Tools
-      Layer 4: Safety
-      Layer 5: Output Format
-
-    Layer 2 (Memory) is handled separately via build_system_prompt() in chat/agent APIs.
+    Layers:
+      Layer 0: Identity       — "I am AgentFlow..."
+      Layer 1: Environment    — "Current date: ..."
+      Layer 2: Memory         — "About the user: ..." (conditional)
+      Layer 3: Tools          — Tool descriptions + usage rules
+      Layer 4: Safety         — "DO NOT: ..."
+      Layer 5: Output Format  — "Use Markdown. Default Chinese."
     """
     global _builder
     if _builder is None:
@@ -92,6 +92,7 @@ def get_prompt_builder() -> PromptBuilder:
             PromptBuilder()
             .register(IdentityLayer())
             .register(EnvironmentLayer())
+            .register(MemoryLayer())
             .register(ToolsLayer())
             .register(SafetyLayer())
             .register(OutputFormatLayer())

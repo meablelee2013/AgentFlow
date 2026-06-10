@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
+    ENCRYPTION_KEY: str = ""  # Fernet key for credential encryption (generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 
     # --- Database ---
     DATABASE_URL: str = (

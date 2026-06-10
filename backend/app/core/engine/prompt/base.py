@@ -29,6 +29,9 @@ class PromptContext:
     kb_id: str | None = None
     query: str = ""
 
+    # ── DB session (for Memory layer) ──
+    db: Any = None  # AsyncSession, passed through from API endpoints
+
     # ── Extras ──
     extra: dict[str, Any] = field(default_factory=dict)
 
