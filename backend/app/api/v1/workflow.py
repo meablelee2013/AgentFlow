@@ -1,7 +1,10 @@
 """Workflow API — save, load, list, execute workflows"""
+import asyncio
+import json
 import time
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
@@ -127,6 +130,127 @@ async def test_decompose(req: TestDecomposeRequest):
         "execution_trace": trace,
         "enabled_capabilities": enabled_caps,
     }
+
+
+# ── SSE Streaming Decompose ─────────────────────────────────────────
+
+
+@router.post("/test-decompose/stream")
+async def test_decompose_stream(req: TestDecomposeRequest):
+    """Stream the decompose → fan-out → aggregate pipeline via SSE.
+
+    Clients receive real-time progress events:
+      - phase: "decomposing" | "executing" | "aggregating" | "done"
+      - decomposed: LLM finished planning, subtask list
+      - subtask_start / subtask_done: per-subtask progress
+      - aggregated: final result
+      - error: something went wrong
+    """
+    from app.core.workflow.capability_registry import get_capability_registry
+    from app.core.workflow.nodes.decompose import DecomposeExecutor
+    from app.core.workflow.fanout import execute_fanout_sse
+    from app.core.workflow.nodes.aggregate import AggregateExecutor
+
+    registry = get_capability_registry()
+    enabled_caps = req.enabled_capabilities
+    if not enabled_caps:
+        enabled_caps = [c.id for c in registry.list_builtin()]
+
+    async def event_stream():
+        overall_start = time.monotonic()
+
+        # ── Phase 1: Decompose ────────────────────────────
+        yield _sse("phase", {"phase": "decomposing", "message": "Analyzing goal and planning subtasks..."})
+
+        decomposer = DecomposeExecutor()
+        try:
+            subtasks = await decomposer.decompose(
+                goal=req.goal,
+                enabled_capabilities=enabled_caps,
+                max_subtasks=req.max_subtasks,
+            )
+        except Exception as e:
+            yield _sse("error", {"message": f"Decomposition failed: {e}"})
+            return
+
+        subtask_preview = [
+            {"id": st.id, "description": st.description, "executor": st.executor}
+            for st in subtasks
+        ]
+        yield _sse("decomposed", {
+            "subtasks": subtask_preview,
+            "count": len(subtasks),
+            "message": f"Decomposed into {len(subtasks)} subtasks",
+        })
+
+        # ── Phase 2: Fan-out (parallel execution with progress) ──
+        yield _sse("phase", {"phase": "executing", "message": f"Running {len(subtasks)} subtasks in parallel..."})
+
+        state: dict = {"messages": [], "node_outputs": {}}
+
+        # Use SSE-aware fan-out that yields progress events
+        results = {}
+        async for event in execute_fanout_sse(subtasks, state, registry=registry):
+            event_type, event_data = event
+            yield _sse(event_type, event_data)
+            if event_type == "subtask_done" or event_type == "subtask_failed":
+                results[event_data["id"]] = event_data
+
+        # ── Phase 3: Aggregate (streaming) ──────────────────
+        yield _sse("phase", {"phase": "aggregating", "message": "Synthesizing final report..."})
+
+        # Rebuild SubTask objects from results
+        subtask_results = {}
+        for st in subtasks:
+            executed = results.get(st.id, {})
+            if executed:
+                st.status = executed.get("status", "failed")
+                st.result = executed.get("result")
+                st.error = executed.get("error")
+                st.duration_ms = executed.get("duration_ms", 0)
+            subtask_results[st.id] = st
+
+        aggregator = AggregateExecutor()
+        trace_info: dict = {}
+        final_answer = ""
+
+        async for token in aggregator.aggregate_stream(
+            goal=req.goal,
+            subtask_results=subtask_results,
+        ):
+            if isinstance(token, tuple) and token[0] == "__TRACE__":
+                trace_info = token[1]
+            elif isinstance(token, tuple) and token[0] == "__ANSWER__":
+                final_answer = token[1]
+            else:
+                # Actual text token — stream to client
+                yield _sse("token", {"text": token})
+
+        total_ms = int((time.monotonic() - overall_start) * 1000)
+        if isinstance(trace_info, dict):
+            trace_info["total_duration_ms"] = total_ms
+
+        yield _sse("aggregated", {
+            "aggregated_output": final_answer,
+            "execution_trace": trace_info,
+        })
+
+        yield _sse("phase", {"phase": "done", "message": "Complete"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _sse(event: str, data: dict) -> str:
+    """Format a Server-Sent Event line."""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 @router.post("", response_model=WorkflowResponse)

@@ -57,17 +57,87 @@ You MUST respond with this JSON structure:
 - Be thorough but concise
 """
 
+AGGREGATE_STREAM_PROMPT = """You are a Report Synthesis Agent. Combine the results of multiple independent subtasks into a single, coherent, well-structured final answer.
+
+## Rules
+- Review all completed subtask results and synthesize them
+- If some subtasks failed, note what's missing but work with available data
+- DO NOT fabricate data from failed subtasks
+- Write your answer DIRECTLY in Markdown — no JSON wrapper, no preamble
+- Use headers (##), bullet points, tables as appropriate
+- Be thorough but concise
+- Start your answer immediately — no "Here is the report" intro
+"""
+
 
 class AggregateExecutor:
     """Collect subtask results and synthesize a final report."""
 
     def __init__(self, model_name: str | None = None):
+        self.model_name = model_name or "deepseek-chat"
         self.llm = ChatOpenAI(
             base_url=settings.DEEPSEEK_BASE_URL,
             api_key=settings.DEEPSEEK_API_KEY,
-            model=model_name or "deepseek-chat",
+            model=self.model_name,
             temperature=0.3,
         )
+
+    async def aggregate_stream(self, goal: str, subtask_results: dict[str, SubTask]):
+        """Stream aggregate tokens via async generator for SSE.
+
+        Uses a Markdown-only prompt for clean streaming. Yields token
+        strings as the LLM generates them, plus __TRACE__ and __ANSWER__
+        sentinel values at the end.
+        """
+        completed = [st for st in subtask_results.values() if st.status == "completed"]
+        failed = [st for st in subtask_results.values() if st.status == "failed"]
+
+        results_text = self._format_results(subtask_results)
+        failed_note = ""
+        if failed:
+            failed_note = "\n## Failed Subtasks\n" + self._format_failed(failed)
+            failed_note += "\n\nNote: base your report on available data only. Mention any gaps."
+
+        user_prompt = f"""## Original Goal
+{goal}
+
+## Completed Subtask Results
+{results_text}
+{failed_note}
+
+Synthesize these results into a final answer. Write directly in Markdown."""
+
+        llm = ChatOpenAI(
+            base_url=settings.DEEPSEEK_BASE_URL,
+            api_key=settings.DEEPSEEK_API_KEY,
+            model=self.model_name,
+            temperature=0.3,
+            streaming=True,
+        )
+
+        full_text = ""
+        async for chunk in llm.astream([
+            SystemMessage(content=AGGREGATE_STREAM_PROMPT),
+            HumanMessage(content=user_prompt),
+        ]):
+            if chunk.content:
+                token = chunk.content
+                full_text += token
+                yield token
+
+        # Build execution trace
+        trace = ExecutionTrace(
+            execution_id=str(uuid.uuid4()),
+            total=len(subtask_results),
+            completed=len(completed),
+            failed=len(failed),
+            total_duration_ms=0,
+            subtasks=sorted(subtask_results.values(), key=lambda s: s.id),
+            aggregated_output=full_text,
+        )
+
+        yield ("__TRACE__", trace.model_dump())
+        yield ("__ANSWER__", full_text)
 
     async def aggregate(
         self,

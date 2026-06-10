@@ -240,7 +240,7 @@ def get_search_backend(name: str | None = None):
         SEARCH_BACKEND=brave      → use Brave
         SEARCH_BACKEND=duckduckgo → use DDG (free, unlimited)
     """
-    backend_name = name or os.getenv("SEARCH_BACKEND", "searxng").lower()
+    backend_name = name or os.getenv("SEARCH_BACKEND", "duckduckgo").lower()
 
     backends = {
         "searxng": SearXNGBackend,

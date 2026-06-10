@@ -113,6 +113,119 @@ async def execute_fanout(
     return result_dict
 
 
+async def execute_fanout_sse(
+    subtasks: list[SubTask],
+    state: dict[str, Any],
+    registry: CapabilityRegistry | None = None,
+    timeout_per_task: int = 120,
+):
+    """Execute all subtasks in parallel, yielding SSE progress events.
+
+    Yields:
+        Tuples of (event_type, event_data):
+        - ("subtask_start", {id, description, executor})
+        - ("subtask_done", {id, status: "completed", result, duration_ms})
+        - ("subtask_failed", {id, status: "failed", error, duration_ms})
+    """
+    if not subtasks:
+        return
+
+    registry = registry or get_capability_registry()
+
+    async def run_one(st: SubTask):
+        """Execute a single subtask and return the event."""
+        yield ("subtask_start", {
+            "id": st.id,
+            "description": st.description,
+            "executor": st.executor,
+        })
+
+        start = time.monotonic()
+        capability = registry.get(st.executor)
+
+        if not capability:
+            dur = int((time.monotonic() - start) * 1000)
+            yield ("subtask_failed", {
+                "id": st.id,
+                "status": "failed",
+                "executor": st.executor,
+                "description": st.description,
+                "error": f"Unknown executor: {st.executor}",
+                "duration_ms": dur,
+                "result": None,
+            })
+            return
+
+        try:
+            if capability.type == "builtin_node":
+                result = await asyncio.wait_for(
+                    _execute_builtin(st.executor, st.input, state),
+                    timeout=timeout_per_task,
+                )
+            elif capability.type == "agent":
+                result = await asyncio.wait_for(
+                    _execute_agent(st.executor, st.input, state, capability),
+                    timeout=timeout_per_task * 3,
+                )
+            else:
+                raise ValueError(f"Unknown capability type: {capability.type}")
+
+            dur = int((time.monotonic() - start) * 1000)
+            yield ("subtask_done", {
+                "id": st.id,
+                "status": "completed",
+                "executor": st.executor,
+                "description": st.description,
+                "result": result,
+                "error": None,
+                "duration_ms": dur,
+            })
+
+        except asyncio.TimeoutError:
+            dur = int((time.monotonic() - start) * 1000)
+            yield ("subtask_failed", {
+                "id": st.id,
+                "status": "failed",
+                "executor": st.executor,
+                "description": st.description,
+                "error": f"Timeout after {timeout_per_task}s",
+                "duration_ms": dur,
+                "result": None,
+            })
+        except Exception as e:
+            dur = int((time.monotonic() - start) * 1000)
+            yield ("subtask_failed", {
+                "id": st.id,
+                "status": "failed",
+                "executor": st.executor,
+                "description": st.description,
+                "error": str(e),
+                "duration_ms": dur,
+                "result": None,
+            })
+
+    # Run all in parallel, but collect events from each
+    tasks = [run_one(st) for st in subtasks]
+    # Use an async generator approach: iterate each task's events via as_completed
+    pending = {asyncio.ensure_future(_consume_gen(gen)): st
+               for gen, st in zip(tasks, subtasks)}
+
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for fut in done:
+            events = fut.result()
+            for event in events:
+                yield event
+
+
+async def _consume_gen(agen):
+    """Consume an async generator and return all yielded values as a list."""
+    results = []
+    async for item in agen:
+        results.append(item)
+    return results
+
+
 async def _execute_builtin(
     executor_id: str,
     input_data: dict[str, Any],
