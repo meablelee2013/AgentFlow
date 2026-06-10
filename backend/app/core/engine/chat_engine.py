@@ -38,6 +38,11 @@ from app.core.engine.prompts import CHAT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT_STREA
 # ── State definition ──────────────────────────────────────────────
 
 
+def _merge_outputs(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    """Merge node outputs: new node outputs overwrite same-key entries."""
+    return {**left, **right}
+
+
 class ChatState(TypedDict):
     """Conversation state
 
@@ -45,8 +50,13 @@ class ChatState(TypedDict):
         messages uses operator.add reducer
         → new messages concatenated to existing list, not overwritten
         → this is the foundation of conversation memory
+
+        node_outputs uses _merge_outputs reducer
+        → each node writes its structured output to node_outputs[node_id]
+        → downstream nodes reference upstream data via {{node_x.field}}
     """
     messages: Annotated[List[BaseMessage], operator.add]
+    node_outputs: Annotated[dict[str, Any], _merge_outputs]  # workflow node outputs
 
 
 # ── ChatGraphEngine ─────────────────────────────────────────
@@ -138,7 +148,7 @@ class ChatGraphEngine:
         input_messages = [HumanMessage(content=m["content"]) for m in messages] if messages else []
         # Prepend system prompt with optional override (includes user memories when provided)
         input_messages.insert(0, SystemMessage(content=system_prompt or CHAT_SYSTEM_PROMPT))
-        input_state = {"messages": input_messages}
+        input_state = {"messages": input_messages, "node_outputs": {}}
 
         result = await self._app.ainvoke(input_state, config=config)
 
@@ -159,7 +169,7 @@ class ChatGraphEngine:
         config: RunnableConfig = {"configurable": {"thread_id": tid}}
         input_messages = [HumanMessage(content=m["content"]) for m in messages] if messages else []
         input_messages.insert(0, SystemMessage(content=system_prompt or CHAT_SYSTEM_PROMPT_STREAM))
-        input_state = {"messages": input_messages}
+        input_state = {"messages": input_messages, "node_outputs": {}}
 
         async for event in self._app.astream_events(input_state, config=config, version="v2"):
             kind = event["event"]

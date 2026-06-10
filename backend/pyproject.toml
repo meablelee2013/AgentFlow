@@ -37,6 +37,9 @@ dependencies = [
     "uvicorn>=0.49.0",
     "psycopg[binary]>=3.3.4",
     "tiktoken>=0.13.0",
+    "fpdf2>=2.8.7",
+    "jsonpath-ng>=1.8.0",
+    "cryptography>=46.0.0",
 ]
 
 [dependency-groups]

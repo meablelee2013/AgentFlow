@@ -175,7 +175,7 @@ class AgentGraphEngine:
         if system_prompt:
             input_messages.insert(0, SystemMessage(content=system_prompt))
         result = await self._app.ainvoke(
-            {"messages": input_messages}, config=config
+            {"messages": input_messages, "node_outputs": {}}, config=config
         )
 
         return {
@@ -204,7 +204,7 @@ class AgentGraphEngine:
             input_messages.insert(0, SystemMessage(content=system_prompt))
 
         async for event in self._app.astream_events(
-            {"messages": input_messages}, config=config, version="v2"
+            {"messages": input_messages, "node_outputs": {}}, config=config, version="v2"
         ):
             kind = event["event"]
             if kind == "on_chat_model_stream":

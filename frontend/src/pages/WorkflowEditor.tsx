@@ -9,12 +9,43 @@ import type { Connection, Node, Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Save, Play, MessageSquare, Database, Wrench,
          GitBranch, Repeat, UserCheck, Plus, ArrowLeft, Workflow, Globe } from "lucide-react";
+import { ConfigDrawer } from "../components/workflow/ConfigDrawer";
+
+// ── Error Boundary ──────────────────────────────────────
+
+import { Component } from "react";
+import type { ReactNode } from "react";
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="fixed bottom-4 right-4 z-[9999] max-w-md bg-red-50 border border-red-200 rounded-xl p-4 shadow-lg">
+          <p className="text-xs font-semibold text-red-600 mb-1">ConfigDrawer Error</p>
+          <pre className="text-[10px] text-red-500 whitespace-pre-wrap">{this.state.error.message}</pre>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="mt-2 text-[10px] text-red-400 hover:text-red-600 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const NODE_PALETTE = [
   { type: "chat", label: "Chat", icon: MessageSquare, color: "#3b82f6" },
   { type: "rag", label: "RAG", icon: Database, color: "#8b5cf6" },
   { type: "search", label: "Web Search", icon: Globe, color: "#14b8a6" },
   { type: "tool", label: "Tool", icon: Wrench, color: "#f59e0b" },
+  { type: "http_api", label: "API Call", icon: Globe, color: "#0ea5e9" },
   { type: "condition", label: "Condition", icon: GitBranch, color: "#ef4444" },
   { type: "loop", label: "Loop", icon: Repeat, color: "#06b6d4" },
   { type: "hitl", label: "HITL", icon: UserCheck, color: "#10b981" },
@@ -33,11 +64,13 @@ function CustomNode({ id, data, type }: { id: string; data: Record<string, unkno
   const [menuOpen, setMenuOpen] = useState(false);
   const labels: Record<string, string> = {
     chat: "Chat", rag: "RAG", search: "Web Search", tool: "Tool",
+    http_api: "API Call",
     condition: "Condition", loop: "Loop", hitl: "HITL",
   };
   const colors: Record<string, string> = {
     chat: "border-blue-400 bg-blue-50", rag: "border-violet-400 bg-violet-50",
     search: "border-teal-400 bg-teal-50", tool: "border-amber-400 bg-amber-50",
+    http_api: "border-sky-400 bg-sky-50",
     condition: "border-red-400 bg-red-50", loop: "border-cyan-400 bg-cyan-50",
     hitl: "border-emerald-400 bg-emerald-50",
   };
@@ -62,7 +95,7 @@ function CustomNode({ id, data, type }: { id: string; data: Record<string, unkno
 
       {/* Dropdown */}
       {menuOpen && (
-        <div className="absolute left-full ml-3 top-0 bg-white border border-border rounded-xl shadow-xl z-50 py-1 min-w-[160px]"
+        <div className="absolute left-full ml-3 top-0 bg-white border border-border rounded-xl shadow-xl z-50 py-1 min-w-[160px] text-ink"
              onClick={e => e.stopPropagation()}>
           <p className="px-3 py-1.5 text-[10px] text-gray-400 font-mono uppercase tracking-wider">Add Node</p>
           {NODE_PALETTE.map(({ type: nt, label, icon: Icon, color }) => (
@@ -98,7 +131,7 @@ function StartNode({ id, data }: { id: string; data: Record<string, unknown> }) 
         <Plus size={12} strokeWidth={3} />
       </button>
       {menuOpen && (
-        <div className="absolute left-full ml-3 top-0 bg-white border border-border rounded-xl shadow-xl z-50 py-1 min-w-[160px]"
+        <div className="absolute left-full ml-3 top-0 bg-white border border-border rounded-xl shadow-xl z-50 py-1 min-w-[160px] text-ink"
              onClick={e => e.stopPropagation()}>
           <p className="px-3 py-1.5 text-[10px] text-gray-400 font-mono uppercase tracking-wider">Add Node</p>
           {NODE_PALETTE.map(({ type: nt, label, icon: Icon, color }) => (
@@ -154,6 +187,18 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<any>(null);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+
+  // Find the currently selected node from nodes state to keep data in sync
+  const selectedNodeData = selectedNode
+    ? nodes.find(n => n.id === selectedNode.id) || null
+    : null;
+
+  const updateNodeData = useCallback((nodeId: string, data: Record<string, unknown>) => {
+    setNodes((nds: Node[]) =>
+      nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n)
+    );
+  }, [setNodes]);
 
   // Add-node callback: creates a new node and auto-connects from source
   const addNodeAfter = useCallback((sourceId: string, nodeType: string) => {
@@ -199,7 +244,55 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
 
   const buildPayload = () => ({
     name: wfName,
-    nodes: nodes.map((n: Node) => ({ id: n.id, type: mapType(n.type), position: n.position, data: { label: n.data?.label } })),
+    nodes: nodes.map((n: Node) => {
+      const nodeType = mapType(n.type);
+      // Base data — always include inputs
+      const data: Record<string, unknown> = {
+        label: n.data?.label,
+        inputs: n.data?.inputs || [],
+      };
+      // Include all configurable fields for each node type
+      if (nodeType === "start") {
+        Object.assign(data, {
+          output_name: n.data?.output_name || "query",
+        });
+      }
+      if (nodeType === "http_api") {
+        Object.assign(data, {
+          url: n.data?.url || "",
+          method: n.data?.method || "GET",
+          headers: n.data?.headers || {},
+          query_params: n.data?.query_params || {},
+          body: n.data?.body || "",
+          timeout: n.data?.timeout || 30,
+          retry_count: n.data?.retry_count ?? 0,
+          response_path: n.data?.response_path || "",
+          auth_mode: n.data?.auth_mode || "none",
+          credential_id: n.data?.credential_id || "",
+        });
+      }
+      if (nodeType === "chat") {
+        Object.assign(data, {
+          system_prompt: n.data?.system_prompt || "",
+        });
+      }
+      if (nodeType === "rag") {
+        Object.assign(data, {
+          knowledge_base_id: n.data?.knowledge_base_id || "",
+        });
+      }
+      if (nodeType === "tool") {
+        Object.assign(data, {
+          tool_name: n.data?.tool_name || "",
+        });
+      }
+      if (nodeType === "hitl") {
+        Object.assign(data, {
+          approval_message: n.data?.approval_message || "",
+        });
+      }
+      return { id: n.id, type: nodeType, position: n.position, data };
+    }),
     edges: edges.map((e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle })),
   });
 
@@ -228,10 +321,25 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
     rag: (p: any) => <CustomNode {...p} type="rag" />,
     search: (p: any) => <CustomNode {...p} type="search" />,
     tool: (p: any) => <CustomNode {...p} type="tool" />,
+    http_api: (p: any) => <CustomNode {...p} type="http_api" />,
     condition: (p: any) => <CustomNode {...p} type="condition" />,
     loop: (p: any) => <CustomNode {...p} type="loop" />,
     hitl: (p: any) => <CustomNode {...p} type="hitl" />,
   };
+
+  // Handle node click — open config drawer for configurable nodes
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (node.type === "endNode") {
+      setSelectedNode(null);
+      return;
+    }
+    setSelectedNode(node);
+  }, []);
+
+  // Handle canvas click — close drawer
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
 
   return (
     <div className="flex h-full bg-warm">
@@ -271,6 +379,7 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
         <ReactFlow
           nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onConnect={onConnect} onInit={setRfInstance} onDragOver={onDragOver} onDrop={onDrop}
+          onNodeClick={onNodeClick} onPaneClick={onPaneClick}
           nodeTypes={nodeTypes} fitView deleteKeyCode={["Backspace", "Delete"]}
           style={{ background: "#faf7f2" }}>
           <Controls className="bg-white border-border rounded-lg shadow-sm" />
@@ -285,6 +394,15 @@ function EditorView({ wf, onBack }: { wf: WFItem | null; onBack: () => void }) {
             </Panel>
           )}
         </ReactFlow>
+        <ErrorBoundary>
+          <ConfigDrawer
+            node={selectedNodeData}
+            onClose={() => setSelectedNode(null)}
+            onUpdate={updateNodeData}
+            edges={edges}
+            allNodes={nodes}
+          />
+        </ErrorBoundary>
       </div>
     </div>
   );

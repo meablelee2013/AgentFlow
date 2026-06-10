@@ -15,6 +15,8 @@ from app.api.v1.agent import router as agent_router
 from app.api.v1.supervisor import router as supervisor_router
 from app.api.v1.workflow import router as workflow_router
 from app.api.v1.memory import router as memory_router
+from app.api.v1.credential import router as credential_router
+from app.api.v1.customer_service import router as customer_service_router
 
 logger = structlog.get_logger()
 
@@ -52,6 +54,8 @@ app.include_router(agent_router, prefix="/api/v1")
 app.include_router(supervisor_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
+app.include_router(credential_router, prefix="/api/v1")
+app.include_router(customer_service_router, prefix="/api/v1")
 
 
 @app.get("/health")

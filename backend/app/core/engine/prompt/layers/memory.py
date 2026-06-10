@@ -45,8 +45,14 @@ class MemoryLayer(BasePromptLayer):
         """
         from app.services.memory_service import MemoryService
 
-        memory_service = MemoryService(ctx.extra.get("db"))
-        memories = await memory_service.get_active_by_category(ctx.user_id)
+        # ctx.db is set by chat.py / agent.py via PromptContext(db=db)
+        if not ctx.db:
+            return ""
+
+        memory_service = MemoryService(ctx.db)
+        # Use get_all_active (no category param) — get_active_by_category
+        # requires a category argument and would cause TypeError.
+        memories = await memory_service.get_all_active(ctx.user_id)
 
         if not memories:
             return ""

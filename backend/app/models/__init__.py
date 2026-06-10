@@ -4,6 +4,7 @@ from app.models.user import User, Workspace, WorkspaceMember, UserRole
 from app.models.conversation import Conversation, Message
 from app.models.user_memory import UserMemory
 from app.models.knowledge import KnowledgeBase, Document, DocumentChunk
+from app.models.credential import Credential
 
 __all__ = [
     "Base",
@@ -17,4 +18,5 @@ __all__ = [
     "KnowledgeBase",
     "Document",
     "DocumentChunk",
+    "Credential",
 ]

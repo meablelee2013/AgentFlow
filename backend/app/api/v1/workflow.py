@@ -48,6 +48,8 @@ async def save_workflow(req: WorkflowSaveRequest):
             "id": n.get("id", str(uuid.uuid4())),
             "type": n["type"],
             "position": n.get("position", {"x": 0, "y": 0}),
+            "inputs": n.get("inputs", []),
+            "outputs": n.get("outputs", []),
             "data": n.get("data", {}),
         } for n in req.nodes],
         edges=[{
@@ -115,7 +117,7 @@ async def execute_workflow(wf_id: str, req: ExecuteRequest):
 
     from langchain_core.messages import HumanMessage
     result = await app.ainvoke(
-        {"messages": [HumanMessage(content=req.message)]},
+        {"messages": [HumanMessage(content=req.message)], "node_outputs": {}},
         config={"configurable": {"thread_id": str(uuid.uuid4())}},
     )
     reply = ""
@@ -124,4 +126,7 @@ async def execute_workflow(wf_id: str, req: ExecuteRequest):
             reply = m.content
             break
 
-    return {"output": reply}
+    # Include node_outputs in response for debugging/introspection
+    node_outputs = result.get("node_outputs", {})
+
+    return {"output": reply, "node_outputs": node_outputs}
