@@ -54,9 +54,17 @@ class ChatState(TypedDict):
         node_outputs uses _merge_outputs reducer
         → each node writes its structured output to node_outputs[node_id]
         → downstream nodes reference upstream data via {{node_x.field}}
+
+    Task decomposition fields (decompose → fan-out → aggregate):
+        decomposed_tasks: list of SubTask dicts produced by decompose node
+        subtask_results: {subtask_id: SubTask result} from fan-out execution
+        execution_trace: full trace with status, durations, errors
     """
     messages: Annotated[List[BaseMessage], operator.add]
     node_outputs: Annotated[dict[str, Any], _merge_outputs]  # workflow node outputs
+    decomposed_tasks: list  # list[SubTask] — produced by decompose node
+    subtask_results: dict[str, Any]   # {subtask_id: SubTask dict}
+    execution_trace: dict | None  # ExecutionTrace dict
 
 
 # ── ChatGraphEngine ─────────────────────────────────────────

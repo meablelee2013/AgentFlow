@@ -59,6 +59,14 @@ const NODE_OUTPUTS: Record<string, { name: string; type: string; description: st
     { name: "status", type: "string", description: "审批状态" },
     { name: "message", type: "string", description: "审批消息" },
   ],
+  decompose: [
+    { name: "subtasks", type: "array", description: "拆解出的子任务列表" },
+    { name: "reasoning", type: "string", description: "拆解推理过程" },
+  ],
+  aggregate: [
+    { name: "aggregated_output", type: "string", description: "汇总后的最终报告" },
+    { name: "execution_trace", type: "object", description: "执行追踪信息" },
+  ],
 };
 
 const INPUT_TYPES = ["string", "number", "boolean", "object", "array", "any"];
@@ -75,6 +83,8 @@ const NODE_META: Record<string, { icon: string; label: string; color: string }> 
   condition: { icon: "🔀", label: "Condition",        color: "bg-red-100 text-red-600" },
   loop:      { icon: "🔄", label: "Loop",             color: "bg-cyan-100 text-cyan-600" },
   hitl:      { icon: "✋", label: "HITL",              color: "bg-emerald-100 text-emerald-600" },
+  decompose: { icon: "🔀", label: "Decompose",        color: "bg-amber-100 text-amber-600" },
+  aggregate: { icon: "📊", label: "Aggregate",        color: "bg-emerald-100 text-emerald-600" },
 };
 
 const METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"];
@@ -336,6 +346,21 @@ export function ConfigDrawer({ node, onClose, onUpdate, edges, allNodes }: Confi
   const [hitlMsg, setHitlMsg] = useState("");
   const [startOutputName, setStartOutputName] = useState("query");
 
+  // ── Decompose state ───────────────────────────────────
+  const [enabledCaps, setEnabledCaps] = useState<string[]>([]);
+  const [decomposePrompt, setDecomposePrompt] = useState("");
+  const [maxSubtasks, setMaxSubtasks] = useState(10);
+
+  // ── Aggregate state ───────────────────────────────────
+  const [summaryPrompt, setSummaryPrompt] = useState("");
+  const [failureMode, setFailureMode] = useState("partial");
+
+  // ── Capability list (fetched once for Decompose) ──────
+  const [capabilities, setCapabilities] = useState<
+    { builtin_nodes: { id: string; type: string; label: string; description: string }[];
+      agents: { id: string; type: string; label: string; description: string }[] } | null
+  >(null);
+
   // ── Dynamic outputs for start node ──────────────────
   const startOutputs = useMemo(() => {
     const name = startOutputName || "query";
@@ -382,6 +407,14 @@ export function ConfigDrawer({ node, onClose, onUpdate, edges, allNodes }: Confi
       .catch(() => setKbList([]));
   }, []);
 
+  // ── Fetch capabilities for Decompose node ──────────────
+  useEffect(() => {
+    fetch("/api/v1/capabilities")
+      .then(r => r.json())
+      .then(data => setCapabilities(data))
+      .catch(() => setCapabilities(null));
+  }, []);
+
   // ── Reset form on node change ──────────────────────────
   useEffect(() => {
     if (!node) return;
@@ -407,6 +440,13 @@ export function ConfigDrawer({ node, onClose, onUpdate, edges, allNodes }: Confi
     setStartOutputName(String(d?.output_name || "query"));
     setInputs(payloadToInputs(d?.inputs as unknown[] | undefined));
     setDebugResult(null);
+    // Decompose
+    setEnabledCaps(Array.isArray(d?.enabled_capabilities) ? d.enabled_capabilities as string[] : []);
+    setDecomposePrompt(String(d?.system_prompt || ""));
+    setMaxSubtasks(Number(d?.max_subtasks) || 10);
+    // Aggregate
+    setSummaryPrompt(String(d?.summary_prompt || ""));
+    setFailureMode(String(d?.failure_mode || "partial"));
   }, [node]);
 
   // ── Sync helpers ───────────────────────────────────────
@@ -680,6 +720,124 @@ export function ConfigDrawer({ node, onClose, onUpdate, edges, allNodes }: Confi
             </FieldRow>
           )}
 
+          {/* ======== DECOMPOSE ======== */}
+          {nodeType === "decompose" && (
+            <>
+              <div className="text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                🔀 This node uses LLM to decompose a complex goal into independent subtasks,
+                then fans out to execute them in parallel.
+              </div>
+
+              <FieldRow label="Enabled Capabilities">
+                {capabilities ? (
+                  <div className="border border-border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                    {capabilities.builtin_nodes.length > 0 && (
+                      <>
+                        <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase bg-gray-50 border-b border-border">
+                          Built-in Nodes
+                        </div>
+                        {capabilities.builtin_nodes.map(cap => (
+                          <label key={cap.id} className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-sky-50 transition-colors border-b border-border last:border-b-0 ${enabledCaps.includes(cap.id) ? "bg-sky-50/50" : "bg-white"}`}>
+                            <input
+                              type="checkbox"
+                              checked={enabledCaps.includes(cap.id)}
+                              onChange={() => {
+                                const next = enabledCaps.includes(cap.id)
+                                  ? enabledCaps.filter(c => c !== cap.id)
+                                  : [...enabledCaps, cap.id];
+                                setEnabledCaps(next);
+                                emit({ enabled_capabilities: next });
+                              }}
+                              className="w-3.5 h-3.5 rounded"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-medium text-gray-700">{cap.label}</div>
+                              <div className="text-[10px] text-gray-400 truncate">{cap.description}</div>
+                            </div>
+                            <span className="text-[10px] text-gray-300 font-mono shrink-0">{cap.id}</span>
+                          </label>
+                        ))}
+                      </>
+                    )}
+                    {capabilities.agents.length > 0 && (
+                      <>
+                        <div className="px-3 py-1.5 text-[10px] font-semibold text-violet-400 uppercase bg-gray-50 border-b border-border">
+                          Agents
+                        </div>
+                        {capabilities.agents.map(cap => (
+                          <label key={cap.id} className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-violet-50 transition-colors border-b border-border last:border-b-0 ${enabledCaps.includes(cap.id) ? "bg-violet-50/50" : "bg-white"}`}>
+                            <input
+                              type="checkbox"
+                              checked={enabledCaps.includes(cap.id)}
+                              onChange={() => {
+                                const next = enabledCaps.includes(cap.id)
+                                  ? enabledCaps.filter(c => c !== cap.id)
+                                  : [...enabledCaps, cap.id];
+                                setEnabledCaps(next);
+                                emit({ enabled_capabilities: next });
+                              }}
+                              className="w-3.5 h-3.5 rounded accent-violet-600"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-medium text-gray-700">{cap.label}</div>
+                              <div className="text-[10px] text-gray-400 truncate">{cap.description}</div>
+                            </div>
+                            <span className="text-[10px] text-violet-300 font-mono shrink-0">{cap.id}</span>
+                          </label>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-400 py-2">Loading capabilities...</div>
+                )}
+              </FieldRow>
+
+              <FieldRow label="Custom Decomposition Prompt (optional)">
+                <textarea value={decomposePrompt} onChange={e => setDecomposePrompt(e.target.value)}
+                  onBlur={() => emit({ system_prompt: decomposePrompt })}
+                  rows={4}
+                  placeholder="Leave empty for default decomposition prompt..."
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white font-mono
+                             focus:outline-none focus:ring-2 focus:ring-amber-200 resize-y" />
+              </FieldRow>
+
+              <FieldRow label="Max Subtasks">
+                <NumberField value={maxSubtasks} onChange={setMaxSubtasks}
+                  onBlur={() => emit({ max_subtasks: maxSubtasks })} min={1} max={20} />
+              </FieldRow>
+            </>
+          )}
+
+          {/* ======== AGGREGATE ======== */}
+          {nodeType === "aggregate" && (
+            <>
+              <div className="text-sm text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg">
+                📊 This node collects all subtask results and uses LLM to synthesize a final report.
+                Connect it after a Decompose node (or any parallel fan-out).
+              </div>
+
+              <FieldRow label="Custom Summary Prompt (optional)">
+                <textarea value={summaryPrompt} onChange={e => setSummaryPrompt(e.target.value)}
+                  onBlur={() => emit({ summary_prompt: summaryPrompt })}
+                  rows={4}
+                  placeholder="Leave empty for default synthesis prompt..."
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white font-mono
+                             focus:outline-none focus:ring-2 focus:ring-emerald-200 resize-y" />
+              </FieldRow>
+
+              <FieldRow label="Failure Mode">
+                <select value={failureMode}
+                  onChange={e => { setFailureMode(e.target.value); emit({ failure_mode: e.target.value }); }}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white
+                             focus:outline-none focus:ring-2 focus:ring-emerald-200">
+                  <option value="partial">Partial — use available results, note failures (recommended)</option>
+                  <option value="strict">Strict — fail entire aggregation if any subtask fails</option>
+                </select>
+              </FieldRow>
+            </>
+          )}
+
           {/* ======== INPUTS + OUTPUTS ======== */}
           {nodeType !== "" && nodeType !== "end" && (
             <>
@@ -701,7 +859,7 @@ export function ConfigDrawer({ node, onClose, onUpdate, edges, allNodes }: Confi
                   </button>
                 </div>
                 <div className="space-y-2">
-                  {inputs.map((r, i) => (
+                  {inputs.map((r) => (
                     <div key={r.id} className="border border-border rounded-lg p-3 bg-gray-50/50 space-y-2">
                       {/* Row 1: name + type */}
                       <div className="flex gap-2">

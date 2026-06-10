@@ -127,6 +127,47 @@ class CodeNodeData(BaseModel):
     memory_limit: str = "256m"
 
 
+# ── Task Decomposition node configs ──────────────────────────
+
+class DecomposeNodeData(BaseModel):
+    """Decompose node — LLM breaks a complex goal into independent subtasks."""
+    enabled_capabilities: list[str] = []  # e.g. ["web_search", "agent:analyst"]
+    system_prompt: str = ""               # custom decomposition prompt (empty = use default)
+    max_subtasks: int = 10
+
+
+class AggregateNodeData(BaseModel):
+    """Aggregate node — collect subtask results and synthesize a final report."""
+    summary_prompt: str = ""              # custom aggregation prompt
+    failure_mode: Literal["partial", "strict"] = "partial"
+
+
+# ── Task Decomposition runtime models ─────────────────────────
+
+class SubTask(BaseModel):
+    """A single subtask produced by the Decompose node."""
+    id: str
+    description: str = ""
+    executor: str = ""                    # capability_id: "web_search" | "agent:analyst"
+    input: dict[str, Any] = {}
+    expected_output: str = ""
+    status: Literal["pending", "running", "completed", "failed"] = "pending"
+    result: Any = None
+    error: str | None = None
+    duration_ms: int = 0
+
+
+class ExecutionTrace(BaseModel):
+    """Complete execution trace for a task decomposition run."""
+    execution_id: str = ""
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    total_duration_ms: int = 0
+    subtasks: list[SubTask] = []
+    aggregated_output: str = ""
+
+
 # ── Core workflow schema ──────────────────────────────────────
 
 class WorkflowNode(BaseModel):
@@ -134,7 +175,8 @@ class WorkflowNode(BaseModel):
     type: Literal[
         "start", "chat", "rag", "search", "tool",
         "condition", "loop", "hitl", "end",
-        "http_api", "database", "code",    # ← New business connector nodes
+        "http_api", "database", "code",
+        "decompose", "aggregate",    # ← Task decomposition nodes
     ]
     position: NodePosition = Field(default_factory=NodePosition)
     inputs: list[NodeIOParam] = []     # Declared input parameters (Coze-style)
