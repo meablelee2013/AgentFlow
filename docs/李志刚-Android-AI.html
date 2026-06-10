@@ -318,7 +318,7 @@
         <li>设计并实现 <b>ReAct Agent 引擎</b>：基于 LangGraph 状态图构建推理-行动循环（Reasoning + Acting），支持工具调用自动迭代（最多 5 轮），集成 DeepSeek 等国产大模型，实现流式对话输出。</li>
         <li>构建 <b>Supervisor 多智能体编排系统</b>：实现主 Agent 协调多个专项子 Agent 协作完成复杂任务，支持并行执行与结果汇总，具备上下文管理与会话持久化能力。</li>
         <li>开发可视化 <b>Workflow Builder</b>：拖拽式 AI 工作流编辑器，支持自定义节点与连线，将工作流编译为可执行 DAG，实现所见即所得的 AI 流水线编排。</li>
-        <li>设计并实现 <b>LLM 驱动的智能任务拆解与分配系统</b>：新增 Decompose/Aggregate 两种节点，利用 Structured Output 约束 LLM 将复杂需求自动拆解为无依赖子任务，基于 asyncio.gather 实现动态并行 Fan-out 调度（总耗时取 max 而非累加），通过 SSE 流式推送全链路实时进度（拆解→执行→汇总三阶段逐 token 可视化），集成全局能力注册表（6 种 Builtin 执行器 + 3 种 ReAct Agent）自动匹配最优执行方案，实现 Partial Success 容错策略确保部分子任务失败时仍能生成可用报告。</li>
+        <li>设计并实现 <b>LLM 驱动的智能任务拆解与分配系统</b>：新增 Decompose/Aggregate 两种节点，利用 Structured Output 约束 LLM 将复杂需求自动拆解为子任务并匹配最优执行器，无依赖子任务 asyncio.gather 并行执行（总耗时取 max 而非累加），有依赖则按拓扑顺序串行；通过 SSE 流式推送全链路实时进度（拆解→执行→汇总三阶段逐 token 可视化）；集成全局能力注册表（6 种 Builtin 执行器 + 3 种 ReAct Agent），实现 Partial Success 容错策略确保部分子任务失败时仍能生成可用报告。</li>
         <li>实现 <b>RAG 流水线</b>：文档解析 → 智能语义分块 → 向量嵌入 → PostgreSQL+pgvector 混合检索（语义 + 关键词），支持多种检索策略与重排序。</li>
         <li>集成 <b>LangChain BaseTool</b> 工具系统：重构工具注册机制为 LangChain 原生 BaseTool，内置 Calculator、Web Search（SearXNG/DuckDuckGo/Brave/Tavily）、DateTime、HTTP Request 等工具，支持自定义工具扩展。</li>
         <li>设计 <b>ChatGPT-style Memory</b> 系统：基于大模型异步提取用户事实，支持跨会话记忆注入、智能去重与更新，实现用户级别的记忆隔离，配套管理 API 与前端面板。</li>

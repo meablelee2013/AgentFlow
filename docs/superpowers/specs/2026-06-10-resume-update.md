@@ -21,7 +21,7 @@
 **插入位置：** 在现有 "▸ 开发可视化 Workflow Builder：拖拽式 AI 工作流编辑器..." 和 "▸ 实现 RAG 流水线..." 之间。
 
 **新增内容：**
-> ▸ 设计并实现 LLM 驱动的智能任务拆解与分配系统：新增 Decompose/Aggregate 两种节点，利用 Structured Output 约束 LLM 将复杂需求自动拆解为无依赖子任务，基于 asyncio.gather 实现动态并行 Fan-out 调度（总耗时取 max 而非累加），通过 SSE（Server-Sent Events）流式推送全链路实时进度（拆解→执行→汇总三阶段逐 token 可视化），集成全局能力注册表（6 种 Builtin 执行器 + 3 种 ReAct Agent）自动匹配最优执行方案，实现 Partial Success 容错策略确保部分子任务失败时仍能生成可用报告。
+> ▸ 设计并实现 LLM 驱动的智能任务拆解与分配系统：新增 Decompose/Aggregate 两种节点，利用 Structured Output 约束 LLM 将复杂需求自动拆解为子任务并匹配最优执行器，无依赖子任务 asyncio.gather 并行执行（总耗时取 max 而非累加），有依赖则按拓扑顺序串行；通过 SSE 流式推送全链路实时进度（拆解→执行→汇总三阶段逐 token 可视化）；集成全局能力注册表（6 种 Builtin 执行器 + 3 种 ReAct Agent），实现 Partial Success 容错策略确保部分子任务失败时仍能生成可用报告。
 
 ---
 
