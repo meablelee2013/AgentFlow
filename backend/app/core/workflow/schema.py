@@ -149,6 +149,7 @@ class SubTask(BaseModel):
     id: str
     description: str = ""
     executor: str = ""                    # capability_id: "web_search" | "agent:analyst"
+    depends_on: list[str] = []            # subtask IDs that must complete before this one
     input: dict[str, Any] = {}
     expected_output: str = ""
     status: Literal["pending", "running", "completed", "failed"] = "pending"

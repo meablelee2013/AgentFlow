@@ -29,11 +29,11 @@ async def execute_fanout(
     registry: CapabilityRegistry | None = None,
     timeout_per_task: int = 120,
 ) -> dict[str, SubTask]:
-    """Execute all subtasks in parallel via dynamic fan-out.
+    """Execute subtasks respecting dependency order.
 
-    Each subtask is dispatched to the executor specified by subtask.executor.
-    All subtasks run concurrently. Results are collected as a dict
-    {subtask_id: updated SubTask with status/result/error/duration_ms}.
+    Subtasks with no dependencies run in parallel. Subtasks that depend on
+    others wait for their prerequisites to complete. Each "level" of the
+    dependency graph runs concurrently, levels run sequentially.
 
     Args:
         subtasks: List of pending SubTask objects
@@ -49,22 +49,32 @@ async def execute_fanout(
 
     registry = registry or get_capability_registry()
 
+    # Build lookup + dependency graph
+    subtask_map: dict[str, SubTask] = {st.id: st for st in subtasks}
+    result_map: dict[str, SubTask] = {}
+    pending_ids = set(subtask_map.keys())
+    completed_ids: set[str] = set()
+
     async def run_one(st: SubTask) -> SubTask:
-        """Execute a single subtask, capturing timing and errors."""
+        """Execute a single subtask, injecting upstream results into input."""
         start = time.monotonic()
 
-        # Look up executor
+        # Inject outputs from dependencies into this subtask's input
+        for dep_id in st.depends_on:
+            dep_result = result_map.get(dep_id)
+            if dep_result and dep_result.status == "completed" and dep_result.result:
+                st.input[f"_{dep_id}_output"] = dep_result.result
+
         capability = registry.get(st.executor)
         if not capability:
             st.status = "failed"
-            st.error = f"Unknown executor: {st.executor}. Available: {[c.id for c in registry.list_all()]}"
+            st.error = f"Unknown executor: {st.executor}"
             st.duration_ms = int((time.monotonic() - start) * 1000)
             return st
 
         try:
             st.status = "running"
 
-            # Dispatch based on executor type
             if capability.type == "builtin_node":
                 result = await asyncio.wait_for(
                     _execute_builtin(st.executor, st.input, state),
@@ -73,7 +83,7 @@ async def execute_fanout(
             elif capability.type == "agent":
                 result = await asyncio.wait_for(
                     _execute_agent(st.executor, st.input, state, capability),
-                    timeout=timeout_per_task * 3,  # Agents get more time
+                    timeout=timeout_per_task * 3,
                 )
             else:
                 st.status = "failed"
@@ -94,23 +104,37 @@ async def execute_fanout(
         st.duration_ms = int((time.monotonic() - start) * 1000)
         return st
 
-    # Run all subtasks in parallel
-    results = await asyncio.gather(
-        *[run_one(st) for st in subtasks],
-        return_exceptions=True,
-    )
+    # Topological execution: process level by level
+    # Each level = subtasks whose dependencies are all satisfied
+    while pending_ids:
+        # Find tasks ready to run (all deps satisfied)
+        ready = [
+            subtask_map[tid] for tid in pending_ids
+            if all(dep in completed_ids for dep in subtask_map[tid].depends_on)
+        ]
 
-    # Build result dict, handling any uncaught exceptions from gather
-    result_dict: dict[str, SubTask] = {}
-    for r in results:
-        if isinstance(r, SubTask):
-            result_dict[r.id] = r
-        elif isinstance(r, Exception):
-            # This shouldn't happen with return_exceptions=True on gather
-            # but handle it defensively
-            pass
+        if not ready:
+            # Circular dependency or all remaining deps failed — mark remaining as failed
+            for tid in pending_ids:
+                st = subtask_map[tid]
+                st.status = "failed"
+                st.error = "Dependency not satisfied (circular or prerequisite failed)"
+                result_map[tid] = st
+            break
 
-    return result_dict
+        # Run all ready tasks in parallel
+        batch_results = await asyncio.gather(
+            *[run_one(st) for st in ready],
+            return_exceptions=True,
+        )
+
+        for st in batch_results:
+            if isinstance(st, SubTask):
+                result_map[st.id] = st
+                pending_ids.discard(st.id)
+                if st.status == "completed":
+                    completed_ids.add(st.id)
+    return result_map
 
 
 async def execute_fanout_sse(

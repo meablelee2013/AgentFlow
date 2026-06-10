@@ -27,13 +27,13 @@ from app.core.workflow.capability_registry import (
 
 # ── Default decomposition prompt ────────────────────────────────────
 
-DECOMPOSE_SYSTEM_PROMPT = """You are a Task Decomposition Agent. Your job is to analyze a complex user request and break it into independent subtasks that can be executed in parallel.
+DECOMPOSE_SYSTEM_PROMPT = """You are a Task Decomposition Agent. Your job is to analyze a complex user request and break it into subtasks, maximizing parallelism where possible.
 
 ## Your Goal
 Given a user's request and a list of available capabilities, produce a set of subtasks where:
 1. Each subtask uses EXACTLY ONE capability from the available list
-2. All subtasks are INDEPENDENT — they do NOT depend on each other's output
-3. Subtasks can run in PARALLEL (no data dependencies)
+2. Subtasks should be as independent as possible for parallel execution
+3. If a subtask genuinely needs another subtask's output, mark the dependency — it will be executed after its prerequisite
 4. Each subtask has a clear, specific input
 
 ## How to Choose the Right Capability
@@ -49,10 +49,11 @@ Given a user's request and a list of available capabilities, produce a set of su
 ## Important Rules
 
 1. **Decompose only as needed.** Don't over-decompose. A simple question might need just 1-2 subtasks.
-2. **No dependencies.** Each subtask must work independently. If task B needs task A's output, DON'T create both — instead create one larger task that handles both steps.
-3. **Minimize count.** Use the minimum number of subtasks to cover the goal. 3-5 is typical for complex goals.
-4. **Be specific in inputs.** Each subtask's input should be detailed and actionable.
-5. **Use agent for complex reasoning.** If a task requires multiple steps, analysis, or tool use, prefer an agent over a simple chat.
+2. **Prefer independence.** Most subtasks can be made independent by including necessary context in the input. Only add a dependency if the output of one task is truly unknowable in advance.
+3. **Use depends_on sparingly.** Mark dependencies only when task B literally cannot start without task A's result. Max 1-2 dependencies per subtask.
+4. **Minimize count.** Use the minimum number of subtasks to cover the goal. 3-5 is typical for complex goals.
+5. **Be specific in inputs.** Each subtask's input should be detailed and actionable.
+6. **Use agent for complex reasoning.** If a task requires multiple steps, analysis, or tool use, prefer an agent over a simple chat.
 
 ## Output Format
 
@@ -65,6 +66,7 @@ You MUST respond with this exact JSON structure — no extra text, no markdown f
       "id": "task_1",
       "description": "What this subtask does",
       "executor": "capability_id from the available list",
+      "depends_on": [],
       "input": {
         "key": "value"
       },
@@ -131,7 +133,7 @@ class DecomposeExecutor:
 
 ## Instructions
 
-Decompose this request into independent subtasks. Maximum {max_subtasks} subtasks.
+Decompose this request into subtasks. Maximize parallelism — only add dependencies when truly necessary. Maximum {max_subtasks} subtasks.
 Output your answer as a JSON object with "reasoning" and "subtasks" fields."""
 
         # Call LLM
@@ -212,10 +214,15 @@ Output your answer as a JSON object with "reasoning" and "subtasks" fields."""
                 task_id = f"{task_id}_{i}"
             seen_ids.add(task_id)
 
+            # Parse depends_on — ensure all referenced IDs exist in the subtask set
+            raw_deps = raw.get("depends_on", [])
+            depends_on = [d for d in raw_deps if isinstance(d, str)]
+
             subtask = SubTask(
                 id=task_id,
                 description=raw.get("description", f"Subtask {i + 1}"),
                 executor=executor,
+                depends_on=depends_on,
                 input=raw.get("input", {}),
                 expected_output=raw.get("expected_output", ""),
                 status="pending",
