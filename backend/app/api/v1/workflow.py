@@ -1,4 +1,5 @@
 """Workflow API — save, load, list, execute workflows"""
+import time
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -7,7 +8,7 @@ from sqlalchemy import select, text
 import structlog
 
 from app.api.v1.deps import get_db
-from app.core.workflow.schema import WorkflowDefinition
+from app.core.workflow.schema import WorkflowDefinition, SubTask, ExecutionTrace
 from app.core.workflow.compiler import WorkflowCompiler
 from app.core.engine.checkpoint import CheckpointerManager
 
@@ -140,4 +141,104 @@ async def execute_workflow(wf_id: str, req: ExecuteRequest):
         "execution_trace": execution_trace,
         "decomposed_tasks": decomposed_tasks,
         "subtask_results": subtask_results,
+    }
+
+
+# ── Test Decompose (no workflow save needed) ────────────────────────
+
+
+class TestDecomposeRequest(BaseModel):
+    goal: str
+    enabled_capabilities: list[str] = Field(default_factory=list)  # empty = all builtin
+    max_subtasks: int = Field(default=10, ge=1, le=20)
+
+
+@router.post("/test-decompose")
+async def test_decompose(req: TestDecomposeRequest):
+    """Test the decompose → fan-out → aggregate pipeline without saving a workflow.
+
+    This is a playground endpoint for testing task decomposition.
+    It runs the full pipeline in memory and returns the complete trace.
+
+    Returns:
+        {
+            "goal": original goal,
+            "reasoning": LLM's decomposition reasoning,
+            "subtasks": [{id, description, executor, input, status, result, error, duration_ms}, ...],
+            "aggregated_output": final synthesized report (Markdown),
+            "execution_trace": {total, completed, failed, total_duration_ms},
+        }
+    """
+    from app.core.workflow.capability_registry import get_capability_registry
+    from app.core.workflow.nodes.decompose import DecomposeExecutor
+    from app.core.workflow.fanout import execute_fanout
+    from app.core.workflow.nodes.aggregate import AggregateExecutor
+
+    registry = get_capability_registry()
+
+    # Determine capabilities
+    enabled_caps = req.enabled_capabilities
+    if not enabled_caps:
+        # Default: all builtin capabilities
+        enabled_caps = [c.id for c in registry.list_builtin()]
+
+    overall_start = time.monotonic()
+
+    # Step 1: Decompose
+    decomposer = DecomposeExecutor()
+    try:
+        subtasks = await decomposer.decompose(
+            goal=req.goal,
+            enabled_capabilities=enabled_caps,
+            max_subtasks=req.max_subtasks,
+        )
+        reasoning = "See subtasks below"  # Will be overridden if LLM provides it
+    except Exception as e:
+        return {
+            "goal": req.goal,
+            "error": f"Decomposition failed: {e}",
+            "subtasks": [],
+            "aggregated_output": "",
+            "execution_trace": None,
+        }
+
+    # Step 2: Fan-out (parallel execution)
+    state: dict = {"messages": [], "node_outputs": {}}
+    results = await execute_fanout(subtasks, state, registry=registry)
+
+    # Step 3: Aggregate
+    aggregator = AggregateExecutor()
+    aggregate_result = await aggregator.aggregate(
+        goal=req.goal,
+        subtask_results=results,
+        node_data={"failure_mode": "partial"},
+    )
+
+    # Build response
+    subtask_list = []
+    for st in subtasks:
+        executed = results.get(st.id)
+        subtask_list.append({
+            "id": st.id,
+            "description": st.description,
+            "executor": st.executor,
+            "input": st.input,
+            "expected_output": st.expected_output,
+            "status": executed.status if executed else "failed",
+            "result": executed.result if executed else None,
+            "error": executed.error if executed else "Not executed",
+            "duration_ms": executed.duration_ms if executed else 0,
+        })
+
+    trace = aggregate_result.get("execution_trace", {})
+    total_duration_ms = int((time.monotonic() - overall_start) * 1000)
+    if isinstance(trace, dict):
+        trace["total_duration_ms"] = total_duration_ms
+
+    return {
+        "goal": req.goal,
+        "subtasks": subtask_list,
+        "aggregated_output": aggregate_result.get("aggregated_output", ""),
+        "execution_trace": trace,
+        "enabled_capabilities": enabled_caps,
     }
