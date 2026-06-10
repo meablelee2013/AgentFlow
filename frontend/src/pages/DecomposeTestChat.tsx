@@ -174,6 +174,7 @@ export function DecomposeTestChat() {
   const [aggregated, setAggregated] = useState<AggregatedData | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [lastGoal, setLastGoal] = useState("");  // Preserve submitted goal for display
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -188,6 +189,7 @@ export function DecomposeTestChat() {
     setAggregated(null);
     setStreamingText("");
     setErrorMsg("");
+    setLastGoal("");
   }, []);
 
   const handleSubmit = async () => {
@@ -198,6 +200,7 @@ export function DecomposeTestChat() {
     abortRef.current?.abort();
 
     reset();
+    setLastGoal(trimmed);
     setGoal("");
     setPhase("decomposing");
     setPhaseMessage("Analyzing goal...");
@@ -393,12 +396,12 @@ export function DecomposeTestChat() {
           </div>
         )}
 
-        {/* Goal bubble */}
-        {goal && isRunning && (
+        {/* Goal bubble — always visible once submitted */}
+        {lastGoal && phase !== "idle" && (
           <div className="flex justify-end">
             <div className="max-w-[80%] bg-ink text-white px-4 py-3 rounded-2xl rounded-br-md">
               <p className="text-xs font-medium opacity-60 mb-0.5">Goal</p>
-              <p className="text-sm">{goal}</p>
+              <p className="text-sm">{lastGoal}</p>
             </div>
           </div>
         )}
