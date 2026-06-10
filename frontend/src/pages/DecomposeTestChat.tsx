@@ -32,6 +32,14 @@ interface DecomposeResult {
   error?: string;
 }
 
+function safeStringify(obj: unknown): string {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
+  }
+}
+
 function SubtaskCard({ st }: { st: SubtaskInfo }) {
   const [expanded, setExpanded] = useState(false);
   const done = st.status === "completed";
@@ -67,7 +75,7 @@ function SubtaskCard({ st }: { st: SubtaskInfo }) {
           <div>
             <span className="font-semibold text-gray-400 uppercase tracking-wider">Input</span>
             <pre className="mt-1 p-2 bg-gray-100 rounded font-mono text-gray-600 whitespace-pre-wrap break-all max-h-24 overflow-y-auto">
-              {JSON.stringify(st.input, null, 2)}
+              {safeStringify(st.input)}
             </pre>
           </div>
           {st.expected_output && (
@@ -80,7 +88,7 @@ function SubtaskCard({ st }: { st: SubtaskInfo }) {
             <div>
               <span className="font-semibold text-gray-400 uppercase tracking-wider">Result</span>
               <pre className="mt-1 p-2 bg-gray-100 rounded font-mono text-gray-600 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
-                {typeof st.result === "string" ? st.result : JSON.stringify(st.result, null, 2)}
+                {typeof st.result === "string" ? st.result : safeStringify(st.result)}
               </pre>
             </div>
           )}
@@ -113,6 +121,7 @@ export function DecomposeTestChat() {
 
     setRunning(true);
     setResult(null);
+    setGoal("");
 
     try {
       const resp = await fetch("/api/v1/workflows/test-decompose", {
@@ -120,13 +129,29 @@ export function DecomposeTestChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ goal: trimmed }),
       });
+
+      if (!resp.ok) {
+        const errorText = await resp.text().catch(() => "Unknown error");
+        setResult({
+          goal: trimmed,
+          error: `Server error (${resp.status}): ${errorText.slice(0, 300)}`,
+          subtasks: [],
+          aggregated_output: "",
+          execution_trace: null,
+          enabled_capabilities: [],
+        });
+        setRunning(false);
+        return;
+      }
+
       const data: DecomposeResult = await resp.json();
       setResult(data);
-      setHistory(prev => [data, ...prev]);
+      setHistory(prev => [...prev, data]);
     } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       setResult({
         goal: trimmed,
-        error: String(e),
+        error: msg || "Network error",
         subtasks: [],
         aggregated_output: "",
         execution_trace: null,
@@ -134,7 +159,6 @@ export function DecomposeTestChat() {
       });
     }
     setRunning(false);
-    setGoal("");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -144,8 +168,10 @@ export function DecomposeTestChat() {
     }
   };
 
-  // Current display data
+  // Current display data — ensure safe defaults for all fields
   const current = result;
+  const currentSubtasks = current?.subtasks ?? [];
+  const currentCaps = current?.enabled_capabilities ?? [];
   const trace = current?.execution_trace;
   const hasError = !!current?.error;
 
@@ -208,22 +234,22 @@ export function DecomposeTestChat() {
             )}
 
             {/* Enabled capabilities */}
-            {current.enabled_capabilities?.length > 0 && (
+            {currentCaps.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] text-gray-400 font-mono uppercase">Capabilities:</span>
-                {current.enabled_capabilities.map(cap => (
+                {currentCaps.map(cap => (
                   <span key={cap} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded font-mono text-gray-500">{cap}</span>
                 ))}
               </div>
             )}
 
             {/* Decomposition plan */}
-            {current.subtasks.length > 0 && (
+            {currentSubtasks.length > 0 && (
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <GitFork size={14} className="text-amber-500" />
                   <span className="text-xs font-semibold text-ink">
-                    Decomposed into {current.subtasks.length} subtasks
+                    Decomposed into {currentSubtasks.length} subtasks
                   </span>
                   {trace && (
                     <span className="text-[10px] text-gray-400 font-mono ml-auto">
@@ -232,7 +258,7 @@ export function DecomposeTestChat() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  {current.subtasks.map(st => (
+                  {currentSubtasks.map(st => (
                     <SubtaskCard key={st.id} st={st} />
                   ))}
                 </div>
