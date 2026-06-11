@@ -21,12 +21,61 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 _chat_engine: ChatGraphEngine | None = None
+_mcp_langchain_tools: list | None = None
 
-def _get_chat_engine() -> ChatGraphEngine:
+
+async def _get_mcp_langchain_tools() -> list:
+    """Lazily build LangChain tools from MCP server.
+
+    Returns cached result after first successful build.
+    Returns [] if MCP is not initialized or no tools discovered.
+    """
+    global _mcp_langchain_tools
+    if _mcp_langchain_tools is not None:
+        return _mcp_langchain_tools
+
+    from app.core.mcp.client import get_mcp_client
+    from app.core.mcp.langchain_adapter import build_mcp_langchain_tools
+
+    manager = get_mcp_client()
+    if not manager.is_initialized:
+        logger.debug("mcp_not_initialized_skipping_tools")
+        _mcp_langchain_tools = []
+        return _mcp_langchain_tools
+
+    try:
+        _mcp_langchain_tools = await build_mcp_langchain_tools(manager)
+        logger.info(
+            "mcp_langchain_tools_built",
+            count=len(_mcp_langchain_tools),
+        )
+    except Exception:
+        logger.exception("mcp_langchain_tools_build_failed")
+        _mcp_langchain_tools = []
+
+    return _mcp_langchain_tools
+
+
+async def _get_chat_engine() -> ChatGraphEngine:
+    """Get or create the ChatGraphEngine with MCP tools.
+
+    The engine is created once as a singleton. If MCP tools become
+    available later, the engine won't pick them up until the next
+    deployment. For dynamic reload, reset _chat_engine = None.
+    """
     global _chat_engine
     if _chat_engine is None:
-        _chat_engine = ChatGraphEngine()
+        mcp_tools = await _get_mcp_langchain_tools()
+        _chat_engine = ChatGraphEngine(tools=mcp_tools)
+        has_tools = len(_chat_engine.tools) > 0
+        logger.info(
+            "chat_engine_created",
+            tool_count=len(_chat_engine.tools),
+            has_tools=has_tools,
+        )
     return _chat_engine
+
+
 extractor = MemoryExtractor()
 
 
@@ -69,6 +118,18 @@ def _parse_memory_enabled(
     return x_memory_enabled.lower() not in ("false", "0", "no", "off")
 
 
+def _build_tools_description() -> str:
+    """Build tools description for the prompt context.
+
+    Includes both MCP weather tools (if available) and built-in tools.
+    """
+    from app.core.mcp.client import get_mcp_client
+    manager = get_mcp_client()
+    if manager.is_initialized:
+        return manager.build_tools_description()
+    return ""
+
+
 async def _extract_memories_background(
     thread_id: str,
     conversation_id: uuid.UUID,
@@ -91,7 +152,6 @@ async def _extract_memories_background(
                 thread_id,
                 limit=settings.MEMORY_EXTRACTION_MAX_MESSAGES,
             )
-            # If recent is empty (first message), use the just-sent exchange
             if not recent:
                 recent = [
                     {"role": "user", "content": message},
@@ -142,16 +202,19 @@ async def chat(
 ):
     """Send message — synchronous full response"""
     builder = get_prompt_builder()
+    tools_desc = _build_tools_description()
     ctx = PromptContext(
         user_id=str(user_id) if user_id else None,
         memory_enabled=memory_enabled,
         db=db,
+        tools_description=tools_desc,
     )
     sp = await builder.build(ctx)
     if not sp.strip():
         sp = CHAT_SYSTEM_PROMPT  # fallback
 
-    result = await _get_chat_engine().run(
+    engine = await _get_chat_engine()
+    result = await engine.run(
         [{"role": "user", "content": req.message}],
         thread_id=req.thread_id,
         system_prompt=sp,
@@ -194,16 +257,19 @@ async def chat_stream(
         yield f"data: [THREAD:{tid}]\n\n"
 
         builder = get_prompt_builder()
+        tools_desc = _build_tools_description()
         ctx = PromptContext(
             user_id=str(user_id) if user_id else None,
             memory_enabled=memory_enabled,
             db=db,
+            tools_description=tools_desc,
         )
         sp = await builder.build(ctx)
         if not sp.strip():
             sp = CHAT_SYSTEM_PROMPT_STREAM
 
-        async for token in _get_chat_engine().stream(
+        engine = await _get_chat_engine()
+        async for token in engine.stream(
             [{"role": "user", "content": req.message}],
             thread_id=tid,
             system_prompt=sp,
@@ -235,6 +301,7 @@ async def get_history(thread_id: str, db: AsyncSession = Depends(get_db)):
 
     # Fallback to LangGraph MemorySaver if DB has no records yet
     if not messages:
-        messages = await _get_chat_engine().get_history(thread_id)
+        engine = await _get_chat_engine()
+        messages = await engine.get_history(thread_id)
 
     return HistoryResponse(thread_id=thread_id, messages=messages)

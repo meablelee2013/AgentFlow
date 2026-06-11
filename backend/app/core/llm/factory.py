@@ -28,6 +28,7 @@ Design pattern: **Registry Pattern + Factory Method**
 from app.core.llm.providers.base import BaseLLMProvider
 from app.core.llm.providers.deepseek import DeepSeekProvider
 from app.core.llm.providers.qwen import QwenProvider
+from app.core.llm.router import LLMRouter
 
 # Provider registry — add one line here for a new Provider
 PROVIDER_REGISTRY: dict[str, type[BaseLLMProvider]] = {
@@ -39,11 +40,30 @@ PROVIDER_REGISTRY: dict[str, type[BaseLLMProvider]] = {
 class LLMFactory:
     """LLM Provider factory
 
+    Two entry points:
+        create(name, **kwargs)          → caller picks the Provider explicitly (sync)
+        create_auto(messages, **kwargs) → LLMRouter picks the Provider (async)
+
     Usage:
-        factory = LLMFactory()
-        provider = factory.create("deepseek")
+        # Explicit
+        provider = LLMFactory.create("deepseek")
         response = await provider.invoke([{"role": "user", "content": "Hi"}])
+
+        # Auto-routed
+        provider = await LLMFactory.create_auto(messages)
+        response = await provider.invoke(messages)
     """
+
+    # Lazily instantiated; route() is currently stateless so one shared instance
+    # is fine. If Phase 3 routing carries warm caches / circuit-breaker state,
+    # this is still the right place to hold it.
+    _router: LLMRouter | None = None
+
+    @staticmethod
+    def _get_router() -> LLMRouter:
+        if LLMFactory._router is None:
+            LLMFactory._router = LLMRouter()
+        return LLMFactory._router
 
     @staticmethod
     def create(provider_name: str = "deepseek", **kwargs) -> BaseLLMProvider:
@@ -67,6 +87,28 @@ class LLMFactory:
                 f"Available: {available}"
             )
         return provider_class(**kwargs)
+
+    @staticmethod
+    async def create_auto(
+        messages: list[dict], **kwargs
+    ) -> BaseLLMProvider:
+        """Create a Provider auto-selected by LLMRouter from message content.
+
+        Equivalent to: name = await router.route(messages); create(name, **kwargs)
+
+        Kept separate from create() because route() is async — folding both
+        into one function would force every caller to await even when they
+        already know the provider name.
+
+        Args:
+            messages: OpenAI-style message dicts used for routing decisions.
+            **kwargs: forwarded to the chosen Provider's constructor.
+
+        Returns:
+            BaseLLMProvider subclass instance.
+        """
+        provider_name = await LLMFactory._get_router().route(messages)
+        return LLMFactory.create(provider_name, **kwargs)
 
     @staticmethod
     def list_providers() -> list[str]:

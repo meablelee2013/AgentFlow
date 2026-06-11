@@ -33,4 +33,6 @@ docker-data/
 
 # Local config (passwords)
 docs/config.md
+.mcp.json
+.superpowers/
 

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from app.core.llm.providers.deepseek import DeepSeekProvider
 from app.core.llm.providers.qwen import QwenProvider
 from app.core.llm.factory import LLMFactory
+from app.core.llm.router import LLMRouter
 
 
 @pytest.mark.asyncio
@@ -81,3 +82,69 @@ def test_factory_list_providers():
     providers = LLMFactory.list_providers()
     assert "deepseek" in providers
     assert "qwen" in providers
+
+
+# ── LLMRouter (Phase 2) ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_router_short_messages_route_to_deepseek():
+    """短消息走默认 Provider(deepseek)"""
+    router = LLMRouter()
+    name = await router.route([{"role": "user", "content": "你好"}])
+    assert name == "deepseek"
+
+
+@pytest.mark.asyncio
+async def test_router_long_context_routes_to_qwen():
+    """总字符数超过阈值 → 路由到 qwen(长文本性价比)"""
+    router = LLMRouter()
+    long_text = "x" * (LLMRouter.LONG_CONTEXT_CHAR_THRESHOLD + 1)
+    name = await router.route([{"role": "user", "content": long_text}])
+    assert name == "qwen"
+
+
+@pytest.mark.asyncio
+async def test_router_sums_chars_across_messages():
+    """阈值判定是所有 message.content 加总,不是单条"""
+    router = LLMRouter()
+    half = "x" * (LLMRouter.LONG_CONTEXT_CHAR_THRESHOLD // 2 + 1)
+    name = await router.route([
+        {"role": "system", "content": half},
+        {"role": "user", "content": half},
+    ])
+    assert name == "qwen"
+
+
+@pytest.mark.asyncio
+async def test_router_handles_missing_content():
+    """缺失或 None 的 content 不应抛错(tool/assistant 消息常见)"""
+    router = LLMRouter()
+    name = await router.route([
+        {"role": "assistant", "content": None},
+        {"role": "tool"},  # no content key at all
+        {"role": "user", "content": "hi"},
+    ])
+    assert name == "deepseek"
+
+
+# ── LLMFactory.create_auto ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_factory_create_auto_short_returns_deepseek():
+    """短消息 create_auto → DeepSeekProvider 实例"""
+    provider = await LLMFactory.create_auto(
+        [{"role": "user", "content": "Hi"}], api_key="test"
+    )
+    assert isinstance(provider, DeepSeekProvider)
+
+
+@pytest.mark.asyncio
+async def test_factory_create_auto_long_returns_qwen():
+    """长消息 create_auto → QwenProvider 实例"""
+    long_text = "x" * (LLMRouter.LONG_CONTEXT_CHAR_THRESHOLD + 1)
+    provider = await LLMFactory.create_auto(
+        [{"role": "user", "content": long_text}], api_key="test"
+    )
+    assert isinstance(provider, QwenProvider)
