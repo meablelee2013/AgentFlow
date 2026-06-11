@@ -1,18 +1,10 @@
 """
-Agent Executor — ReAct (Reasoning + Acting) loop for Agent-type subtasks.
+Agent Executor — ReAct loop with LoopGuard safety for Agent-type subtasks.
 
-Unlike builtin nodes that do one thing in one call, agents use a
-Think → Act → Observe cycle to handle complex multi-step tasks.
-
-Framework design:
-  - Accepts an AgentCapability definition (system_prompt + tools)
-  - Runs a ReAct loop with max_iterations guard
-  - Returns structured output (final answer + tool call trace)
-  - Handles timeouts and max-iteration gracefully
-
-This is a lightweight framework — tools are resolved from the existing
-tool registry. Custom agents can be defined by users and registered
-via the CapabilityRegistry.
+Integrates multi-layer safety:
+    Layer 2: max_iterations (from capability or config)
+    Layer 3: Token ratio circuit breaker
+    Layer 5: Dedup watchdog + confidence scoring
 """
 
 from __future__ import annotations
@@ -24,13 +16,12 @@ from langchain_core.messages import (
 )
 
 from app.config import settings
+from app.core.engine.loop_guard import LoopGuard, LoopConfig, LoopVerdict
+from app.core.metrics import track_llm_call, record_verdict, update_guard_metrics
 
 
 class AgentExecutor:
-    """Execute a ReAct agent for a single subtask.
-
-    The agent receives a task description, reasons about what to do,
-    calls tools as needed, and produces a final answer.
+    """Execute a ReAct agent for a single subtask with safety guard.
 
     Usage:
         from app.core.workflow.capability_registry import ExecutorCapability
@@ -45,11 +36,6 @@ class AgentExecutor:
     """
 
     def __init__(self, capability, model_name: str | None = None):
-        """
-        Args:
-            capability: ExecutorCapability with system_prompt, tools, max_iterations
-            model_name: Optional model override
-        """
         self.capability = capability
         self.system_prompt = capability.system_prompt or "You are a helpful AI assistant."
         self.tool_names = capability.tools or []
@@ -60,23 +46,36 @@ class AgentExecutor:
             api_key=settings.DEEPSEEK_API_KEY,
             model=model_name or "deepseek-chat",
             temperature=0.3,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_tokens=settings.LLM_MAX_TOKENS,
         )
 
     async def execute(self, task: str, state: dict[str, Any]) -> dict[str, Any]:
-        """Execute the agent on a task using ReAct loop.
-
-        Args:
-            task: The task description (from SubTask.input)
-            state: Current ChatState for context
+        """Execute the agent on a task using ReAct loop with LoopGuard.
 
         Returns:
             {
                 "output": str (final answer),
                 "iterations": int,
                 "tool_calls": [{"tool": str, "result": any}, ...],
-                "partial": bool (True if max iterations reached),
+                "partial": bool (True if stopped by safety guard),
+                "stop_reason": str | None (LoopVerdict value if stopped),
             }
         """
+        guard = LoopGuard(
+            config=LoopConfig(
+                max_iterations=self.max_iterations,
+                context_window=settings.CONTEXT_WINDOW,
+                max_output_tokens=settings.MAX_OUTPUT_TOKENS,
+                token_warn_ratio=settings.TOKEN_WARN_RATIO,
+                token_stop_ratio=settings.TOKEN_STOP_RATIO,
+                dedup_window=settings.DEDUP_WINDOW,
+                confidence_threshold=settings.CONFIDENCE_THRESHOLD,
+                low_confidence_streak=settings.LOW_CONFIDENCE_STREAK,
+            ),
+            thread_id=task[:50],  # Use task prefix as pseudo-thread-id
+        )
+
         messages = [
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=f"Task: {task}\n\nComplete this task step by step. "
@@ -86,16 +85,30 @@ class AgentExecutor:
         tool_call_log: list[dict] = []
 
         for iteration in range(1, self.max_iterations + 1):
-            response = await self.llm.ainvoke(messages)
+            @track_llm_call(model="deepseek-chat", provider="deepseek")
+            async def _invoke():
+                return await self.llm.ainvoke(messages)
+
+            response = await _invoke()
             messages.append(response)
 
-            # Check if LLM wants to use tools
+            # Record token usage
+            if hasattr(response, "response_metadata"):
+                usage = response.response_metadata.get("token_usage", {})
+                guard.record_token_usage(usage)
+            elif hasattr(response, "usage_metadata"):
+                guard.record_token_usage(response.usage_metadata)
+
+            # Estimate input tokens for guard check
+            estimated_input = sum(len(m.content) for m in messages) // 4
+
             if hasattr(response, 'tool_calls') and response.tool_calls:
                 for tc in response.tool_calls:
                     tool_result = await self._execute_tool(tc)
                     tool_msg = ToolMessage(
                         content=str(tool_result),
                         tool_call_id=tc.get("id", str(iteration)),
+                        name=tc.get("name", "unknown"),
                     )
                     messages.append(tool_msg)
                     tool_call_log.append({
@@ -103,16 +116,51 @@ class AgentExecutor:
                         "args": tc.get("args", {}),
                         "result": tool_result,
                     })
+                    # Record with confidence scoring
+                    guard.record_tool_result(str(tool_result))
+
+                # Safety check after tool execution
+                tool_results = [str(tc["result"]) for tc in tool_call_log]
+                verdict = guard.check(
+                    input_tokens=estimated_input,
+                    tool_results=tool_results,
+                )
+                update_guard_metrics(
+                    thread_id=task[:50],
+                    token_ratio=guard.token_ratio,
+                    confidence=guard.avg_confidence,
+                    iteration=iteration,
+                )
+                record_verdict(verdict, thread_id=task[:50], engine="agent_executor")
+
+                if verdict in (
+                    LoopVerdict.STOP_MAX_ITERATIONS,
+                    LoopVerdict.STOP_TOKEN_BUDGET,
+                    LoopVerdict.STOP_DEDUP,
+                    LoopVerdict.STOP_LOW_CONFIDENCE,
+                ):
+                    last_content = ""
+                    for msg in reversed(messages):
+                        if isinstance(msg, AIMessage) and msg.content:
+                            last_content = msg.content
+                            break
+                    return {
+                        "output": last_content or "Agent stopped by safety guard.",
+                        "iterations": iteration,
+                        "tool_calls": tool_call_log,
+                        "partial": True,
+                        "stop_reason": verdict.value,
+                    }
             else:
-                # Final answer — LLM didn't call any tools
                 return {
                     "output": response.content if hasattr(response, 'content') else str(response),
                     "iterations": iteration,
                     "tool_calls": tool_call_log,
                     "partial": False,
+                    "stop_reason": None,
                 }
 
-        # Max iterations reached — return best available answer
+        # Max iterations reached
         last_content = ""
         for msg in reversed(messages):
             if isinstance(msg, AIMessage) and msg.content:
@@ -124,18 +172,14 @@ class AgentExecutor:
             "iterations": self.max_iterations,
             "tool_calls": tool_call_log,
             "partial": True,
+            "stop_reason": LoopVerdict.STOP_MAX_ITERATIONS.value,
         }
 
     async def _execute_tool(self, tool_call: dict) -> str:
-        """Execute a single tool call.
-
-        Resolves tools from the existing tool registry.
-        Falls back to a descriptive message if tool is not available.
-        """
+        """Execute a single tool call via the tool registry."""
         tool_name = tool_call.get("name", "")
         tool_args = tool_call.get("args", {})
 
-        # Try to use the existing tool system
         try:
             from app.core.tool.registry import get_tool_registry
             tool_registry = get_tool_registry()
@@ -146,7 +190,6 @@ class AgentExecutor:
         except (ImportError, Exception):
             pass
 
-        # Fallback for builtin tools
         if tool_name == "calculator":
             return await self._calc(tool_args)
         elif tool_name == "web_search":

@@ -4,7 +4,7 @@ Request lifecycle:
     Request → CORS Middleware → Router → Response
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
@@ -64,3 +64,19 @@ app.include_router(capabilities_router, prefix="/api/v1")
 async def health_check():
     """Health check endpoint — usable as K8s liveness probe"""
     return {"status": "ok", "version": settings.APP_VERSION}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint.
+
+    Exposes LLM call metrics (QPS, P99 latency, error counts) and
+    agent loop guard metrics (verdicts, token ratio, confidence).
+
+    Scrape this with Prometheus and visualize with the provided
+    Grafana dashboard at deploy/grafana/dashboard.json.
+    """
+    if not settings.METRICS_ENABLED:
+        return Response(content="Metrics disabled", status_code=404)
+    from app.core.metrics import get_metrics
+    return Response(content=get_metrics(), media_type="text/plain; charset=utf-8")

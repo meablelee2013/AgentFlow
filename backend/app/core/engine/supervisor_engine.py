@@ -1,5 +1,5 @@
 """
-Supervisor Multi-Agent Engine — LangGraph orchestration pattern.
+Supervisor Multi-Agent Engine — LangGraph orchestration with LoopGuard safety.
 
 ```mermaid
 graph TD
@@ -14,17 +14,7 @@ graph TD
     Reviewer --> Supervisor
 ```
 
-Design pattern: **Supervisor Pattern**
-    A central "supervisor" agent routes tasks to specialized sub-agents.
-    Each sub-agent has a clear domain and returns results to the supervisor.
-    The supervisor iterates until the task is complete, then returns FINISH.
-
-StateGraph:
-    START → supervisor → conditional_edge
-        ├── "researcher" → researcher → supervisor
-        ├── "coder" → coder → supervisor
-        ├── "reviewer" → reviewer → supervisor
-        └── "FINISH" → END
+Protected by LoopGuard against infinite supervisor loops.
 """
 
 import uuid
@@ -44,6 +34,8 @@ from app.core.engine.prompts import (
     SUPERVISOR_SYSTEM_PROMPT as DEFAULT_SUPERVISOR_PROMPT,
     AGENT_PROMPTS as DEFAULT_AGENT_PROMPTS,
 )
+from app.core.engine.loop_guard import LoopGuard, LoopConfig, LoopVerdict
+from app.core.metrics import track_llm_call, record_verdict, update_guard_metrics
 
 
 class SupervisorState(TypedDict):
@@ -52,25 +44,15 @@ class SupervisorState(TypedDict):
 
 
 class SupervisorEngine:
-    """Supervisor pattern multi-agent orchestration.
+    """Supervisor pattern multi-agent orchestration with LoopGuard.
 
     The supervisor routes tasks to specialized sub-agents and collects
-    results until the task is complete.
+    results until the task is complete, protected against infinite loops.
 
     Usage:
         engine = SupervisorEngine()
         result = await engine.run([{"role": "user", "content": "Write a sorting function"}])
-
-    You can optionally pass custom prompts for the supervisor and agents,
-    which is used by the API layer to inject user memories:
-
-        engine = SupervisorEngine(
-            supervisor_prompt=custom_supervisor_with_memories,
-            agent_prompts={"researcher": ..., ...},
-        )
     """
-
-    MAX_ITERATIONS = 8  # Prevent infinite loops
 
     def __init__(
         self,
@@ -82,11 +64,26 @@ class SupervisorEngine:
         self._graph = self._build_graph()
         self._checkpointer = CheckpointerManager.get()
         self._app = self._graph.compile(checkpointer=self._checkpointer)
+        self._guards: dict[str, LoopGuard] = {}
+        self._guard_config = LoopConfig(
+            max_iterations=settings.MAX_TOOL_ITERATIONS,
+            context_window=settings.CONTEXT_WINDOW,
+            max_output_tokens=settings.MAX_OUTPUT_TOKENS,
+            token_warn_ratio=settings.TOKEN_WARN_RATIO,
+            token_stop_ratio=settings.TOKEN_STOP_RATIO,
+        )
+
+    def _get_guard(self, thread_id: str) -> LoopGuard:
+        if thread_id not in self._guards:
+            self._guards[thread_id] = LoopGuard(
+                config=self._guard_config,
+                thread_id=thread_id,
+            )
+        return self._guards[thread_id]
 
     def _build_graph(self) -> StateGraph:
         workflow = StateGraph(SupervisorState)
 
-        # Add nodes
         workflow.add_node("supervisor", self._supervisor_node)
         workflow.add_node("researcher", self._make_agent_node("researcher"))
         workflow.add_node("coder", self._make_agent_node("coder"))
@@ -99,56 +96,98 @@ class SupervisorEngine:
             "reviewer": "reviewer",
             "FINISH": END,
         })
-        # All agents return to supervisor
         for agent in ["researcher", "coder", "reviewer"]:
             workflow.add_edge(agent, "supervisor")
 
         return workflow
 
     def _make_agent_node(self, role: str):
-        """Factory: create a sub-agent node function."""
+        """Factory: create a sub-agent node function with timeout."""
         async def agent_node(state: SupervisorState) -> dict:
             llm = ChatOpenAI(
                 base_url=settings.DEEPSEEK_BASE_URL,
                 api_key=settings.DEEPSEEK_API_KEY,
                 model="deepseek-chat",
                 temperature=0.7,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
+                max_tokens=settings.LLM_MAX_TOKENS,
             )
             prompt = self.agent_prompts.get(role, DEFAULT_AGENT_PROMPTS.get(role, ""))
             msgs = [SystemMessage(content=prompt)] + list(state["messages"])
-            response = await llm.ainvoke(msgs)
+
+            @track_llm_call(model="deepseek-chat", provider="deepseek")
+            async def _invoke():
+                return await llm.ainvoke(msgs)
+
+            response = await _invoke()
             return {"messages": [response]}
         return agent_node
 
     async def _supervisor_node(self, state: SupervisorState) -> dict:
-        """Supervisor reasoning — decide which agent to delegate to next."""
+        """Supervisor reasoning — decide which agent to delegate to next.
+
+        Integrates LoopGuard: checks iteration limits and token budget
+        before making routing decisions.
+        """
+        tid = getattr(self, '_current_thread_id', '')
+        guard = self._get_guard(tid)
+
         llm = ChatOpenAI(
             base_url=settings.DEEPSEEK_BASE_URL,
             api_key=settings.DEEPSEEK_API_KEY,
             model="deepseek-chat",
-            temperature=0.3,  # Lower temp for routing decisions
+            temperature=0.3,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_tokens=settings.LLM_MAX_TOKENS,
         )
 
         msgs = [SystemMessage(content=self.supervisor_prompt)] + list(state["messages"])
-        response = await llm.ainvoke(msgs)
+
+        @track_llm_call(model="deepseek-chat", provider="deepseek")
+        async def _invoke():
+            return await llm.ainvoke(msgs)
+
+        response = await _invoke()
+
+        # Record token usage
+        if hasattr(response, "response_metadata"):
+            usage = response.response_metadata.get("token_usage", {})
+            if usage:
+                guard.record_token_usage(usage)
+        elif hasattr(response, "usage_metadata"):
+            guard.record_token_usage(response.usage_metadata)
 
         decision = (response.content or "").strip().lower()
-        # The LLM may return text like "FINISH" or "coder" — extract just the word
+
+        # Check LoopGuard before routing
+        estimated_input = sum(
+            len(m.content) for m in state["messages"]
+            if isinstance(m, AIMessage)
+        ) // 4
+        verdict = guard.check(input_tokens=estimated_input)
+
+        update_guard_metrics(
+            thread_id=tid,
+            token_ratio=guard.token_ratio,
+            confidence=guard.avg_confidence,
+            iteration=guard.iteration,
+        )
+        record_verdict(verdict, thread_id=tid, engine="supervisor")
+
+        if verdict in (
+            LoopVerdict.STOP_MAX_ITERATIONS,
+            LoopVerdict.STOP_TOKEN_BUDGET,
+            LoopVerdict.STOP_CANCELLED,
+        ):
+            return {"next": "FINISH"}
+
+        # Parse LLM decision
         for word in ["finish", "researcher", "coder", "reviewer"]:
             if word in decision:
                 return {"next": word.upper() if word == "finish" else word}
 
-        # Check iteration limit
-        agent_count = sum(
-            1 for m in state["messages"]
-            if isinstance(m, AIMessage) and m.content
-            and any(role in (m.content or "").lower() for role in ["research", "code", "review"])
-        )
-        if agent_count >= self.MAX_ITERATIONS:
-            return {"next": "FINISH"}
-
-        # Default: send to researcher for general queries
-        return {"next": "researcher"}
+        # Default to FINISH as safety (was: researcher)
+        return {"next": "FINISH"}
 
     @staticmethod
     def _route(state: SupervisorState) -> Literal["researcher", "coder", "reviewer", "FINISH"]:
@@ -161,22 +200,33 @@ class SupervisorEngine:
     ) -> dict[str, Any]:
         is_new = thread_id is None
         tid = thread_id or str(uuid.uuid4())
+        self._current_thread_id = tid
+        self._get_guard(tid)
+
         config: RunnableConfig = {"configurable": {"thread_id": tid}}
 
         input_msgs = [HumanMessage(content=m["content"]) for m in messages]
         result = await self._app.ainvoke(
             {"messages": input_msgs}, config=config
         )
+
+        guard = self._guards.get(tid)
+        LoopGuard.clear_cancel(tid)
+
         return {
             "thread_id": tid,
             "messages": self._serialize(result["messages"]),
             "is_new": is_new,
+            "guard_summary": guard.summary if guard else None,
         }
 
     async def stream(
         self, messages: list[dict], thread_id: str | None = None
     ) -> AsyncGenerator[str, None]:
         tid = thread_id or str(uuid.uuid4())
+        self._current_thread_id = tid
+        self._get_guard(tid)
+
         config: RunnableConfig = {"configurable": {"thread_id": tid}}
         input_msgs = [HumanMessage(content=m["content"]) for m in messages]
 
@@ -189,6 +239,11 @@ class SupervisorEngine:
                 if content:
                     yield content
 
+        LoopGuard.clear_cancel(tid)
+
+    def cancel(self, thread_id: str) -> bool:
+        return LoopGuard.request_cancel(thread_id)
+
     @staticmethod
     def _serialize(messages: list[BaseMessage]) -> list[dict]:
         result = []
@@ -198,5 +253,5 @@ class SupervisorEngine:
             elif isinstance(msg, AIMessage):
                 result.append({"role": "assistant", "content": msg.content or ""})
             elif isinstance(msg, SystemMessage):
-                pass  # Skip system prompts
+                pass
         return result

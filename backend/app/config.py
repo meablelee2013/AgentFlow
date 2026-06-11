@@ -51,5 +51,20 @@ class Settings(BaseSettings):
     MEMORY_EXTRACTION_MAX_MESSAGES: int = 8  # how many recent messages to send to extraction LLM
     MEMORY_EXTRACTION_MODEL: str = "deepseek-chat"  # model for extraction (can be cheaper)
 
+    # --- Loop Safety Guard ---
+    MAX_TOOL_ITERATIONS: int = 5         # Layer 2: max tool-calling iterations
+    CONTEXT_WINDOW: int = 65536          # DeepSeek-v3 context window
+    MAX_OUTPUT_TOKENS: int = 2048        # Reserved output tokens per LLM call
+    TOKEN_WARN_RATIO: float = 0.6       # Layer 3: warn when input/available >= 60%
+    TOKEN_STOP_RATIO: float = 0.8       # Layer 3: stop when input/available >= 80%
+    DEDUP_WINDOW: int = 3               # Layer 5a: consecutive identical results to trigger stop
+    CONFIDENCE_THRESHOLD: float = 0.3   # Layer 5b: below this is "low confidence"
+    LOW_CONFIDENCE_STREAK: int = 2      # Layer 5b: consecutive low-confidence actions to stop
+    LLM_TIMEOUT_SECONDS: int = 60       # Per-LLM-call timeout
+    LLM_MAX_TOKENS: int = 2048          # max_tokens per LLM response
+
+    # --- Metrics ---
+    METRICS_ENABLED: bool = True         # Enable Prometheus /metrics endpoint
+
 
 settings = Settings()

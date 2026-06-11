@@ -8,7 +8,9 @@ import uuid
 
 from app.core.engine.agent_engine import AgentGraphEngine
 from app.core.engine.prompts import AGENT_SYSTEM_PROMPT, get_prompt_builder, PromptContext
+from app.core.engine.loop_guard import LoopGuard
 from app.core.memory.extractor import MemoryExtractor
+from app.core.metrics import get_llm_stats
 from app.core.tool.registry import ToolRegistry
 from app.api.v1.deps import get_db, AsyncSessionLocal
 from app.services.chat_service import ChatService
@@ -185,3 +187,43 @@ async def list_tools():
         ToolInfo(name=t.name, description=t.description)
         for t in _get_agent_engine().tools
     ]
+
+
+@router.post("/{thread_id}/cancel")
+async def cancel_execution(thread_id: str):
+    """Cancel a running agent execution (Layer 4 — user interrupt).
+
+    Sets a cancel flag that the LoopGuard checks before each tool
+    execution. The agent will finish its current LLM call and then
+    stop gracefully.
+    """
+    engine = _get_agent_engine()
+    was_new = engine.cancel(thread_id)
+    return {
+        "thread_id": thread_id,
+        "cancelled": True,
+        "was_new": was_new,
+    }
+
+
+@router.get("/{thread_id}/guard")
+async def get_guard_summary(thread_id: str):
+    """Get the LoopGuard safety summary for a thread.
+
+    Returns token ratio, iteration count, confidence scores, etc.
+    Useful for debugging why an agent stopped.
+    """
+    engine = _get_agent_engine()
+    summary = engine.get_guard_summary(thread_id)
+    if not summary:
+        return {"thread_id": thread_id, "status": "not_found"}
+    return {"thread_id": thread_id, **summary}
+
+
+@router.get("/stats/llm")
+async def get_llm_stats_endpoint():
+    """Get real-time LLM call statistics (QPS, P50/P90/P99 latency).
+
+    Returns the same data exposed via Prometheus /metrics, but as JSON.
+    """
+    return get_llm_stats()
