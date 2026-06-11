@@ -119,6 +119,8 @@ class ChatGraphEngine:
             api_key=settings.DEEPSEEK_API_KEY or os.getenv("DEEPSEEK_API_KEY"),
             model="deepseek-chat",
             temperature=0.7,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_tokens=settings.LLM_MAX_TOKENS,
         )
         response = await llm.ainvoke(state["messages"])
         return {"messages": [response]}
